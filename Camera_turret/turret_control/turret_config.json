@@ -1,0 +1,30 @@
+{
+  "port": "COM3",
+  "baudrate": 115200,
+  "update_hz": 100.0,
+  "simulation": true,
+  "azimuth": {
+    "node_id": 74,
+    "calibration_file": "C:\\Users\\jfdai\\OneDrive - RAYOPS\\RAYOPS\\OneDrive - RAYOPS\\RAYOPS\\Quantino\\Product development\\Beam Steering\\Novika\\Livrables\\Moteur Mosrac U5010\\ServosilaDevice-Configuration-74_sans capot_Motor encoder_better.csv",
+    "counts_per_rev": 16777216,
+    "gear_ratio": 1.0,
+    "direction": -1,
+    "zero_offset_counts": 9500000,
+    "min_counts": 8000000,
+    "max_counts": 11000000,
+    "min_deg": -32.1865082,
+    "max_deg": 32.1865082
+  },
+  "elevation": {
+    "node_id": 72,
+    "calibration_file": "C:\\Users\\jfdai\\OneDrive - RAYOPS\\RAYOPS\\OneDrive - RAYOPS\\RAYOPS\\Quantino\\Product development\\Beam Steering\\Novika\\Livrables\\Moteur Mosrac U2510\\U2510_29-06-2026.csv",
+    "counts_per_rev": 16777216,
+    "gear_ratio": 1.0,
+    "direction": 1,
+    "zero_offset_counts": 11257000,
+    "min_counts": 10600000,
+    "max_counts": 12000000,
+    "min_deg": -6.43730164,
+    "max_deg": 10.0
+  }
+}
