@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
                                QCheckBox, QProgressBar)
 from PySide6.QtCore import Signal, Qt, QThread, QSettings, QObject, Slot
 from PySide6.QtGui import  QAction , QPixmap
-from Spectro_laser_diode.src.avaspec import *
+from Spectro_diode.src.avaspec import *
 import os
 import sys
 import numpy as np
@@ -14,7 +14,7 @@ import numpy as np
 # Check for simulation mode
 SIMULATION_MODE = '--simulate' in sys.argv
 if SIMULATION_MODE:
-    from Spectro_laser_diode.src.hardware_simulator import (
+    from Spectro_diode.src.hardware_simulator import (
         AVS_Init_Sim, AVS_Done_Sim, AVS_GetNrOfDevices_Sim,
         AVS_UpdateUSBDevices_Sim, AVS_GetList_Sim, AVS_Activate_Sim,
         AVS_Deactivate_Sim, AVS_UseHighResAdc_Sim, AVS_GetNumPixels_Sim,
@@ -586,7 +586,7 @@ class SpectroTab(QWidget):
             return
         
         try:
-            from spectrum_analysis import (read_calibration_file, analyze_spectrum, KFactorCache)
+            from Spectro_diode.src.spectrum_analysis import (read_calibration_file, analyze_spectrum, KFactorCache)
 
             self.log_status("Starting post-processing analysis...")
             self.analyze_btn.setEnabled(False)
