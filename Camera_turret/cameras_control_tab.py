@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
                                QComboBox, QGroupBox, QGridLayout, QDoubleSpinBox, 
                                QSpinBox, QStatusBar, QSlider, QLineEdit, QStyle, QMessageBox, QFileDialog)
 from PySide6.QtCore import Signal, Qt, QThread, QSettings, QObject, Slot
-from PySide6.QtGui import  QAction 
+from PySide6.QtGui import  QAction, QPixmap, QImage
 
 import os
 import cv2
@@ -14,8 +14,11 @@ import re
 from Camera_turret.camera_control.camera_controller import CameraController
 from Camera_turret.camera_control.IDS_camera import IDSCamera
 from Camera_turret.camera_control.RGB_CAM import USBCamera, USBWorker
+from Camera_turret.camera_control.camera_status import CameraStatusBar
 
 class CamerasControlTab(QWidget):
+    ids_frame_updated = Signal(np.ndarray, float)
+    usb_frame_updated = Signal(np.ndarray, float)
     def __init__(self):
             super().__init__()
     
@@ -65,7 +68,9 @@ class CamerasControlTab(QWidget):
         self.stopButton = QPushButton("Stop")
         self.captureButton = QPushButton("Capture")
         self.recordButton = QPushButton("Record")
-    
+
+        self.idsStatusBar = CameraStatusBar()
+        self.usbStatusBar = CameraStatusBar()
         # --------------------------------------------------------------
         # IDS controls
         # --------------------------------------------------------------
@@ -723,10 +728,262 @@ class CamerasControlTab(QWidget):
         self.settings.setValue("fps", self.fpsSpin.value())
         self.settings.setValue("pixelClock", self.pixelClockSpin.value())
 
+    # ------------------------------------------------------------------
+    # Page shutdown
+    # ------------------------------------------------------------------
+
+    def shutdown(self):
+        """Cleanly stop workers/cameras before the host application exits."""
+        self.stop_laser_test()
+
+        if self.recording:
+            self.stop_recording()
+
+        try:
+            self._stop_worker()
+            self._stop_usb_worker()
+        except Exception as e:
+            print(f"Error stopping camera workers: {e}")
+
+        try:
+            if self.ids_camera.running:
+                self.ids_camera.stop()
+        except Exception as e:
+            print(f"Error stopping IDS camera: {e}")
+
+        try:
+            if self.usb_camera.running:
+                self.usb_camera.stop()
+        except Exception as e:
+            print(f"Error stopping USB camera: {e}")
+
+        try:
+            if self.ids_camera.initialized:
+                self.ids_camera.close()
+        except Exception as e:
+            print(f"Error closing IDS camera: {e}")
+
+        try:
+            if self.usb_camera.initialized:
+                self.usb_camera.close()
+        except Exception as e:
+            print(f"Error closing USB camera: {e}")
+
+        self.save_settings()
+
+    
+
+    
 
     # ------------------------------------------------------------------
-    # Workers
+    # Camera settings
     # ------------------------------------------------------------------
+
+    def change_exposure(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_exposure(self.exposureSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Exposure", str(e))
+
+    def change_gain(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_gain(self.gainSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Gain", str(e))
+
+    def change_fps(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_framerate(self.fpsSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Frame Rate", str(e))
+
+    def change_pixel_clock(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_pixel_clock(self.pixelClockSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Pixel Clock", str(e))
+
+    # ------------------------------------------------------------------
+    # USB settings
+    # ------------------------------------------------------------------
+
+    def change_usb_index(self, index):
+        if self.usb_camera.running:
+            QMessageBox.information(
+                self,
+                "USB Camera Running",
+                "Cannot change USB camera while running",
+            )
+            return
+
+        try:
+            self.usb_camera.close()
+            self.usb_camera.set_device_index(index)
+            self.usb_camera.open()
+        except Exception as e:
+            QMessageBox.warning(self, "USB Camera", str(e))
+
+    def change_usb_fps(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        brightness, contrast, sat, exposure = self.save_usb_settings()
+        was_running = self.usb_camera.running
+
+        try:
+            if was_running:
+                self._stop_usb_worker()
+                self.usb_camera.stop()
+
+            self.usb_camera.set_framerate(value)
+            actual = self.usb_camera.get_framerate()
+
+            self.usb_fps_spin.blockSignals(True)
+            self.usb_fps_spin.setValue(actual)
+            self.usb_fps_spin.blockSignals(False)
+
+            if was_running:
+                self.usb_camera.start()
+                self._start_usb_worker()
+                self.usb_camera.set_saturation(sat)
+                self.usb_camera.set_brightness(brightness)
+                self.usb_camera.set_contrast(contrast)
+                self.usb_camera.set_exposure(exposure)
+
+        except Exception:
+            pass
+
+    def save_usb_settings(self):
+        brightness = self.usb_camera.get_brightness()
+        contrast = self.usb_camera.get_contrast()
+        sat = self.usb_camera.get_saturation()
+        exposure = self.usb_camera.get_exposure()
+
+        return brightness, contrast, sat, exposure
+
+    def change_usb_brightness(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_brightness(value)
+            actual = self.usb_camera.get_brightness()
+
+            self.usb_brightness_spin.blockSignals(True)
+            self.usb_brightness_spin.setValue(actual)
+            self.usb_brightness_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_contrast(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_contrast(value)
+            actual = self.usb_camera.get_contrast()
+
+            self.usb_contrast_spin.blockSignals(True)
+            self.usb_contrast_spin.setValue(actual)
+            self.usb_contrast_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_saturation(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_saturation(value)
+            actual = self.usb_camera.get_saturation()
+
+            self.usb_saturation_spin.blockSignals(True)
+            self.usb_saturation_spin.setValue(actual)
+            self.usb_saturation_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_exposure(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_exposure(value)
+            actual = self.usb_camera.get_exposure()
+
+            self.usb_exposure_spin.blockSignals(True)
+            self.usb_exposure_spin.setValue(actual)
+            self.usb_exposure_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_resolution(self, text):
+        if not self.usb_camera.initialized:
+            return None
+
+        was_running = self.usb_camera.running
+
+        try:
+            width, height = map(int, text.split(" x "))
+
+            if was_running:
+                self._stop_usb_worker()
+                self.usb_camera.stop()
+
+            actual_width, actual_height = self.usb_camera.set_resolution(
+                width,
+                height,
+            )
+
+            if was_running:
+                self.usb_camera.start()
+                self._start_usb_worker()
+
+            return actual_width, actual_height
+
+        except Exception as e:
+            print(f"USB resolution error: {e}")
+            return None
+    # ------------------------------------------------------------------
+    # Status
+    # ------------------------------------------------------------------
+
+    @Slot(np.ndarray, float)
+    def update_image(self, frame, timestamp):   
+        self.ids_frame_updated.emit(frame, timestamp)
+
+    @Slot(np.ndarray, float)
+    def update_usb_image(self, frame, timestamp):
+        self.usb_frame_updated.emit(frame, timestamp)
+
+    @Slot(float)
+    def update_usb_fps(self, fps):
+        self.usbStatusBar.fpsLabel.setText(f"FPS: {fps:.1f}")
+
+    @Slot(float)
+    def update_ids_fps(self, fps):
+        self.idsStatusBar.fpsLabel.setText(f"FPS: {fps:.1f}")
+
+    @Slot(str)
+    def worker_error(self, message):
+        QMessageBox.critical(self, "Camera Error", message)
+
+    @Slot(str)
+    def usb_worker_error(self, error):
+        print(f"USB Camera Error: {error}")
+
 
     def _start_worker(self):
         if self.worker is not None:
@@ -801,49 +1058,6 @@ class CamerasControlTab(QWidget):
     def worker_finished(self):
         self.worker = None
         self.worker_thread = None
-
-    # ------------------------------------------------------------------
-    # Page shutdown
-    # ------------------------------------------------------------------
-
-    def shutdown(self):
-        """Cleanly stop workers/cameras before the host application exits."""
-        self.stop_laser_test()
-
-        if self.recording:
-            self.stop_recording()
-
-        try:
-            self._stop_worker()
-            self._stop_usb_worker()
-        except Exception as e:
-            print(f"Error stopping camera workers: {e}")
-
-        try:
-            if self.ids_camera.running:
-                self.ids_camera.stop()
-        except Exception as e:
-            print(f"Error stopping IDS camera: {e}")
-
-        try:
-            if self.usb_camera.running:
-                self.usb_camera.stop()
-        except Exception as e:
-            print(f"Error stopping USB camera: {e}")
-
-        try:
-            if self.ids_camera.initialized:
-                self.ids_camera.close()
-        except Exception as e:
-            print(f"Error closing IDS camera: {e}")
-
-        try:
-            if self.usb_camera.initialized:
-                self.usb_camera.close()
-        except Exception as e:
-            print(f"Error closing USB camera: {e}")
-
-        self.save_settings()
 
 
 class CameraWorker(QObject):
