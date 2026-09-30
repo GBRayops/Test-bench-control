@@ -17,14 +17,15 @@ class CameraStatusBar(QFrame):
         self.setFrameShadow(
             QFrame.Shadow.Sunken
         )
+        self.setFixedSize(500, 30)
 
         layout = QHBoxLayout(self)
 
         layout.setContentsMargins(
-            8, 4, 8, 4
+            4, 4, 4, 4
         )
 
-        layout.setSpacing(20)
+        layout.setSpacing(5)
 
         self.stateLabel = QLabel("State: --")
 

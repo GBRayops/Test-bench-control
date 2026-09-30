@@ -7,14 +7,11 @@ from PySide6.QtCore import Qt, Slot,  QTimer
 from PySide6.QtGui import QImage, QPixmap
 
 
-from Camera_turret.camera_control.IDS_camera import IDSCamera
-from Camera_turret.camera_control.RGB_CAM import USBCamera, USBWorker
-from Camera_turret.camera_control.camera_controller import CameraController
 from Camera_turret.camera_control.camera_status import CameraStatusBar
 from Camera_turret.camera_control.crosshair import CrosshairOverlay
 
 
-from Camera_turret.cameras_control_tab import CamerasControlTab, CameraWorker
+from Camera_turret.cameras_control_tab import CamerasControlTab
 from Spectro_diode.src.avaspec import *
 from Spectro_diode.src.driver_control_tab import DriverControlTab
 from Spectro_diode.src.arduino_trigger_tab import ArduinoTriggerTab
@@ -50,12 +47,12 @@ class MainWindow(QMainWindow):
 
         self.camera_control_tab = CamerasControlTab()
 
-        #self.spectro_tab = SpectroTab()
+        self.spectro_tab = SpectroTab()
 
-        #self.tabs.addTab(self.spectro_tab, "Spectrometer")
+        self.tabs.addTab(self.spectro_tab, "Spectrometer Control")
         self.tabs.addTab(self.driver_control_tab, "Driver Control")
         self.tabs.addTab(self.arduino_trigger_tab, "Trigger Sync")
-        self.tabs.addTab(self.camera_control_tab, "CAMs Controls")
+        self.tabs.addTab(self.camera_control_tab, "CAMs Control")
 
         # Add the tabs to the left panel
         self.left_panel.addWidget(self.tabs)
@@ -69,6 +66,7 @@ class MainWindow(QMainWindow):
         main_layout.setColumnStretch(1, 3)  
 
         central_widget.setLayout(main_layout)
+
         self.camera_control_tab.ids_frame_updated.connect(self.update_ids_image)
         self.camera_control_tab.usb_frame_updated.connect(self.update_usb_image)
 
@@ -92,6 +90,7 @@ class MainWindow(QMainWindow):
         self.idsCrosshair = CrosshairOverlay(self.idsFeedWidget)
         self.idsCrosshair.setGeometry(self.idsFeedWidget.rect())
         self.ids_layout.addWidget(self.idsFeedWidget)
+        self.ids_layout.addWidget(self.camera_control_tab.idsStatusBar)
         ids_box.setLayout(self.ids_layout)
 
         self.usb_layout = QVBoxLayout()
@@ -105,6 +104,7 @@ class MainWindow(QMainWindow):
         self.usbCrosshair = CrosshairOverlay(self.usbFeedWidget)
         self.usbCrosshair.setGeometry(self.usbFeedWidget.rect())
         self.usb_layout.addWidget(self.usbFeedWidget)
+        self.usb_layout.addWidget(self.camera_control_tab.usbStatusBar)
         usb_box.setLayout(self.usb_layout)
 
         spectro_box = QGroupBox("Live Spectrum Data")

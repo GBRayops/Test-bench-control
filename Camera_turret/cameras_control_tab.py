@@ -37,10 +37,7 @@ class CamerasControlTab(QWidget):
             self.current_usb_frame = None
             self.current_usb_timestamp = None
     
-            self.camera_controller = CameraController(
-                self.ids_camera,
-                self.usb_camera,
-            )
+            self.camera_controller = CameraController(self.ids_camera, self.usb_camera)
     
             self.save_path = None
             self.settings = QSettings("RAYOPS", "CameraViewer")
@@ -319,6 +316,22 @@ class CamerasControlTab(QWidget):
             self._start_worker()
             self._start_usb_worker()
 
+            self.idsStatusBar.update_status(
+                "Running",
+                self.ids_camera.get_framerate(),
+                self.ids_camera.width,
+                self.ids_camera.height,
+                "MONO8",
+            )
+
+            self.usbStatusBar.update_status(
+                "Running",
+                0.0,
+                self.usb_camera.width,
+                self.usb_camera.height,
+                "MJPG",
+            )
+
         except Exception as e:
             QMessageBox.critical(self, "Camera Error", str(e))
 
@@ -326,8 +339,12 @@ class CamerasControlTab(QWidget):
         try:
             self._stop_worker()
             self._stop_usb_worker()
-
             self.camera_controller.stop()
+        
+            self.idsStatusBar.stateLabel.setText("State: Stopped")
+            self.usbStatusBar.stateLabel.setText("State: Stopped")
+            self.idsStatusBar.fpsLabel.setText("FPS: 0.0")
+            self.usbStatusBar.fpsLabel.setText("FPS: 0.0")
 
             self.usbCameraCombo.setEnabled(True)
 
@@ -499,6 +516,8 @@ class CamerasControlTab(QWidget):
 
         self.recording = True
         self.recordButton.setText("Stop Recording")
+        self.idsStatusBar.stateLabel.setText("State: Recording...")
+        self.usbStatusBar.stateLabel.setText("State: Recording...")
 
     def stop_recording(self):
         if self.ids_videoWriter is not None:

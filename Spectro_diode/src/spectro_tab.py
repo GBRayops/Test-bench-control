@@ -1,3 +1,5 @@
+import time
+
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                                QComboBox, QGroupBox, QGridLayout, QDoubleSpinBox, 
                                QSpinBox, QStatusBar, QSlider, QLineEdit, QStyle, QMessageBox, QFileDialog,
@@ -8,6 +10,7 @@ from Spectro_diode.src.avaspec import *
 import os
 import sys
 import numpy as np
+import time
 
 
 
@@ -53,13 +56,12 @@ def avs_get_scope_data(handle):
     if SIMULATION_MODE:
         return AVS_GetScopeData_Sim(handle)
     return AVS_GetScopeData(handle)
+
+
+
 class SpectroTab(QWidget):
     def __init__(self):
         super().__init__()
-
-        self._create_tab()
-
-    def _create_tab(self):
         main_panel = QVBoxLayout()
         
         # Connection group
@@ -299,12 +301,12 @@ class SpectroTab(QWidget):
                 main_panel.addWidget(logo_label)
             else:
                 print(f"⚠️ RAYOPS_logo.jpg not found at: {logo_path}")
-        except Exception as e:
-            print(f"⚠️ Could not load logo: {e}")     
+        except :
+            print(f"⚠️ Could not load logo")
+            pass  # Ignore if logo not found or fails to load     
 
-        main_panel.addWidget(logo_label)
-
-        return main_panel
+        self.setLayout(main_panel)
+        
 
     def connect_spectrometer(self):
             try:
@@ -714,3 +716,503 @@ class SpectroTab(QWidget):
         #self.measurement_thread.finished.connect(self.measurement_finished)
         #self.measurement_thread.data_acquired.connect(self.store_acquired_data)  # Store for navigation
         #self.measurement_thread.start()
+    def stop_measurement(self):
+        if self.measurement_thread:
+            self.log_status("Stopping measurement...")
+            self.measurement_thread.stop()
+
+        if not hasattr(self, 'arduino_tab'):
+            return
+        at = self.arduino_tab
+        if not (at.connected and at.arduino):
+            return
+
+        laser_inactive = getattr(at.arduino, 'laser_silenced', False)
+        if not laser_inactive:
+            status = at.arduino.get_status()
+            if status:
+                laser_inactive = (
+                    not status['running'] or
+                    (status['laser_cycles'] > 0 and status['cycles'] >= status['laser_cycles'])
+                )
+        if laser_inactive:
+            at.stop_triggers()
+
+    def toggle_live_display(self):
+        """Start or stop live display mode"""
+        if self.live_display_active:
+            self.stop_live_display()
+        else:
+            self.start_live_display()
+    def start_live_display(self):
+        """Start continuous live spectrum display for alignment"""
+        if not self.connected or self.handle is None:
+            self.log_status("Error: Spectrometer not connected")
+            return
+
+        # Check if measurement is running
+        if self.measurement_thread and self.measurement_thread.isRunning():
+            self.log_status("Cannot start live display while measurement is running")
+            return
+
+        # Check if in external trigger mode (disabled for live display)
+        if hasattr(self, 'arduino_tab') and self.arduino_tab.is_external_mode():
+            self.log_status("Live display not available in external trigger mode")
+            return
+
+        self.live_display_active = True
+        self.live_btn.setText("Stop Live Display")
+        self.live_btn.setStyleSheet("""
+            QPushButton { background-color: #E91E63; color: white; font-weight: bold; padding: 10px; }
+            QPushButton:disabled { background-color: #a0a0a0; color: #606060; }
+        """)
+
+        # Disable measurement controls during live display
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+
+        # Clear any analysis overlays
+        if self.raw_curve is not None:
+            self.raw_curve.setData([], [])
+        if self.calibrated_curve is not None:
+            self.calibrated_curve.setData([], [])
+        if self.planck_curve is not None:
+            self.planck_curve.setData([], [])
+        if self.plot_legend is not None:
+            self.plot_widget.removeItem(self.plot_legend)
+            self.plot_legend = None
+
+        # Create and configure live display thread
+        self.live_display_thread = LiveDisplayThread()
+        self.live_display_thread.set_parameters(
+            self.handle,
+            self.num_pixels,
+            self.wavelengths,
+            self.integration_time.value(),
+            self.start_pixel.value(),
+            self.stop_pixel.value()
+        )
+
+        # Connect signals
+        self.live_display_thread.spectrum_ready.connect(self.display_live_spectrum)
+        self.live_display_thread.status_update.connect(self.log_status)
+        self.live_display_thread.error.connect(self.log_status)
+        self.live_display_thread.finished.connect(self.on_live_display_finished)
+
+        self.live_display_thread.start()
+        self.log_status(f"Live display started (integration: {self.integration_time.value():.2f} ms)")
+
+    def stop_live_display(self):
+        """Stop live display mode"""
+        if self.live_display_thread:
+            self.live_display_thread.stop()
+            self.live_display_thread.wait(2000)  # Wait up to 2 seconds
+
+        self.live_display_active = False
+        self.live_btn.setText("Start Live Display")
+        self.live_btn.setStyleSheet("""
+            QPushButton { background-color: #9C27B0; color: white; font-weight: bold; padding: 10px; }
+            QPushButton:disabled { background-color: #a0a0a0; color: #606060; }
+        """)
+
+        # Re-enable measurement controls
+        if self.connected:
+            self.start_btn.setEnabled(True)
+
+        # Note: "Live display stopped" message is emitted by the thread when it finishes
+
+    def on_live_display_finished(self):
+        """Handle live display thread finished"""
+        self.live_display_active = False
+        self.live_btn.setText("Start Live Display")
+        self.live_btn.setStyleSheet("""
+            QPushButton { background-color: #9C27B0; color: white; font-weight: bold; padding: 10px; }
+            QPushButton:disabled { background-color: #a0a0a0; color: #606060; }
+        """)
+
+        # Re-enable measurement controls
+        if self.connected:
+            self.start_btn.setEnabled(True)
+
+    def display_live_spectrum(self, wavelengths, spectrum):
+        """Display spectrum from live display mode (no processing)"""
+        # Clear analysis curves
+        if self.raw_curve is not None:
+            self.raw_curve.setData([], [])
+        if self.calibrated_curve is not None:
+            self.calibrated_curve.setData([], [])
+        if self.planck_curve is not None:
+            self.planck_curve.setData([], [])
+
+        # Update plot
+        self.spectrum_curve.setData(wavelengths, spectrum)
+
+        # Update title
+        self.plot_widget.setTitle('Spectrum - Live Display')
+
+        # Update basic statistics
+        max_val = np.max(spectrum)
+        min_val = np.min(spectrum)
+        mean_val = np.mean(spectrum)
+        std_val = np.std(spectrum)
+        max_wl = wavelengths[np.argmax(spectrum)]
+
+        self.stat_labels['Max Intensity'].setText(f"{max_val:.2f} counts")
+        self.stat_labels['Max Wavelength'].setText(f"{max_wl:.2f} nm")
+        self.stat_labels['Min Intensity'].setText(f"{min_val:.2f} counts")
+        self.stat_labels['Mean Intensity'].setText(f"{mean_val:.2f} counts")
+        self.stat_labels['Std Deviation'].setText(f"{std_val:.2f} counts")
+
+    def on_trigger_mode_changed(self, is_external):
+        """Handle trigger mode change from Arduino tab"""
+        # Stop live display if switching to external mode
+        if is_external and self.live_display_active:
+            self.stop_live_display()
+            self.log_status("Live display stopped - external trigger mode selected")
+
+        # Disable averages in external trigger mode (each scan is a distinct laser shot)
+        self.num_averages.setEnabled(not is_external)
+        self.num_averages_label.setEnabled(not is_external)
+
+        # Enable/disable live button based on mode and connection
+        if self.connected:
+            self.live_btn.setEnabled(not is_external)
+
+    def on_protection_activated(self, protections):
+        """Handle protection activation from driver tab - stop Arduino triggers"""
+        if hasattr(self, 'arduino_tab') and self.arduino_tab.connected:
+            # Check if triggers are running
+            if hasattr(self.arduino_tab, 'trigger_status_text'):
+                if self.arduino_tab.trigger_status_text.text() == "RUNNING":
+                    self.log_status(f"⚠️ Stopping Arduino triggers due to protection: {', '.join(protections)}")
+                    if self.arduino_tab.arduino:
+                        self.arduino_tab.arduino.stop()
+                        self.arduino_tab.trigger_status.setStyleSheet("color: red;")
+                        self.arduino_tab.trigger_status_text.setText("STOPPED")
+                        self.arduino_tab.trigger_status_text.setStyleSheet("font-weight: bold; color: red;")
+                        self.arduino_tab.start_btn.setEnabled(True)
+                        self.arduino_tab.stop_btn.setEnabled(False)
+
+    def update_progress(self, current, total):
+        progress = int((current / total) * 100)
+        self.progress_bar.setValue(progress)
+
+    def on_y_auto_scale_changed(self, checked):
+        """Handle Y-axis auto-scale checkbox change"""
+        if not checked:
+            # Snapshot the current auto-scaled range into the spinboxes so the
+            # view does not jump when the user disables auto-scale.
+            y_min_counts, y_max_counts = self.plot_widget.viewRange()[1]
+            y_min_pct = max(0.0, min(100.0, y_min_counts * 100.0 / self.adc_max))
+            y_max_pct = max(0.0, min(100.0, y_max_counts * 100.0 / self.adc_max))
+            self.y_min_spin.blockSignals(True)
+            self.y_max_spin.blockSignals(True)
+            self.y_min_spin.setValue(y_min_pct)
+            self.y_max_spin.setValue(y_max_pct)
+            self.y_min_spin.blockSignals(False)
+            self.y_max_spin.blockSignals(False)
+
+        self.y_min_spin.setEnabled(not checked)
+        self.y_max_spin.setEnabled(not checked)
+        self.apply_y_axis_limits()
+
+    def apply_y_axis_limits(self):
+        """Apply Y-axis limits based on auto-scale setting"""
+        if self.y_auto_scale_cb.isChecked():
+            # Enable auto-range on Y axis
+            self.plot_widget.enableAutoRange(axis='y')
+        else:
+            # Set manual Y range - convert percentage to counts using ADC max
+            y_min_pct = self.y_min_spin.value()
+            y_max_pct = self.y_max_spin.value()
+            if y_min_pct < y_max_pct:
+                y_min_counts = y_min_pct * self.adc_max / 100
+                y_max_counts = y_max_pct * self.adc_max / 100
+                self.plot_widget.setYRange(y_min_counts, y_max_counts, padding=0)
+
+    def display_spectrum(self, wavelengths, spectrum, stats):
+        # Hide analysis curves if they exist (switching from analysis view to normal)
+        if self.raw_curve is not None:
+            self.raw_curve.setData([], [])
+        if self.calibrated_curve is not None:
+            self.calibrated_curve.setData([], [])
+        if self.planck_curve is not None:
+            self.planck_curve.setData([], [])
+
+        # Remove legend if present
+        if self.plot_legend is not None:
+            self.plot_widget.removeItem(self.plot_legend)
+            self.plot_legend = None
+
+        # Update plot using setData for performance (no clear/recreate)
+        self.spectrum_curve.setData(wavelengths, spectrum)
+        
+        # Update title with scan type
+        scan_num = stats.get('scan_number', 0)
+        scan_type = stats.get('scan_type', 'Normal')
+        
+        if scan_type == "Average":
+            self.plot_widget.setTitle(f'Spectrum - Scan #{scan_num} (Average)')
+        elif scan_type == "Median":
+            self.plot_widget.setTitle(f'Spectrum - Scan #{scan_num} (Median)')
+        elif scan_num == 0:
+            self.plot_widget.setTitle('Spectrum - Average of All Scans')
+        elif scan_num > 0:
+            self.plot_widget.setTitle(f'Spectrum - Scan #{scan_num}')
+        else:
+            self.plot_widget.setTitle('Spectrum')
+        
+        # Update statistics
+        self.stat_labels['Max Intensity'].setText(f"{stats['max']:.2f} counts")
+        self.stat_labels['Max Wavelength'].setText(f"{stats['max_wavelength']:.2f} nm")
+        self.stat_labels['Min Intensity'].setText(f"{stats['min']:.2f} counts")
+        self.stat_labels['Mean Intensity'].setText(f"{stats['mean']:.2f} counts")
+        self.stat_labels['Std Deviation'].setText(f"{stats['std']:.2f} counts")
+        
+        sat_text = f"{stats['saturation']:.1f}%"
+        if stats['saturation'] > 90:
+            sat_text += " ⚠️"
+            self.stat_labels['Saturation'].setStyleSheet("color: red; font-weight: bold;")
+        else:
+            self.stat_labels['Saturation'].setStyleSheet("")
+        self.stat_labels['Saturation'].setText(sat_text)
+
+        # Apply Y-axis limits
+        self.apply_y_axis_limits()
+
+    def handle_error(self, error_msg):
+        self.log_status(f"ERROR: {error_msg}")
+        QMessageBox.critical(self, "Measurement Error",
+                             f"An error occurred during measurement:\n\n{error_msg}\n\n"
+                             "Data may not have been saved correctly.")
+        
+    def measurement_finished(self):
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.progress_bar.setValue(100)
+        self.log_status("Measurement sequence complete")
+        
+        # Enable navigation controls if we have acquired data
+        if len(self.acquired_spectra) > 0:
+            self.scan_number_input.setEnabled(True)
+            self.scan_number_input.setMaximum(len(self.acquired_spectra))
+            self.scan_number_input.setValue(len(self.acquired_spectra))  # Show last scan
+            self.scan_count_label.setText(f"/ {len(self.acquired_spectra)}")
+            self.prev_scan_btn.setEnabled(True)
+            self.next_scan_btn.setEnabled(False)
+
+            # Enable post-processing button
+            self.analyze_btn.setEnabled(True)
+            self.export_plot_btn.setEnabled(True)
+            
+            # Auto post-processing if enabled
+            if self.postproc_enable.isChecked():
+                calib_file = self.calib_path.text()
+                if calib_file and os.path.exists(calib_file):
+                    self.log_status("Auto post-processing enabled - starting analysis...")
+                    self.run_postprocessing()
+                else:
+                    self.log_status("⚠️ Auto post-processing enabled but no calibration file set")
+        
+    def disconnect_spectrometer(self):
+        """Properly disconnect from spectrometer"""
+        self._spectro_check_timer.stop()
+        if self.connected and self.handle:
+            try:
+                self.log_status("Disconnecting from spectrometer...")
+                AVS_Deactivate(self.handle)
+                AVS_Done()
+                self.connected = False
+                self.handle = None
+                self.log_status("Spectrometer disconnected successfully")
+            except Exception as e:
+                self.log_status(f"Error during disconnect: {str(e)}")
+
+    def _check_spectrometer_connection(self):
+        """Periodic USB presence check — fallback in case nativeEvent doesn't fire."""
+        if not self.connected:
+            return
+        try:
+            n = AVS_UpdateUSBDevices()
+            if n == 0:
+                self._on_spectrometer_lost()
+        except Exception:
+            self._on_spectrometer_lost()
+
+    def _on_spectrometer_lost(self):
+        """Handle unexpected USB disconnection of the spectrometer."""
+        # Mark as disconnected immediately so timers and nativeEvent don't re-enter
+        self.connected = False
+        self._spectro_check_timer.stop()
+
+        # Stop any running threads before invalidating the handle.
+        # device_lost prevents the thread from calling avs_stop_measure on a dead handle,
+        # which would race with AVS_Done and segfault.
+        if self.measurement_thread and self.measurement_thread.isRunning():
+            self.measurement_thread.device_lost = True
+            self.measurement_thread.running = False
+            self.measurement_thread.wait(2000)
+        if self.live_display_active:
+            self.stop_live_display()
+
+        # Stop Arduino triggers — on USB-over-Ethernet both devices drop together
+        if hasattr(self, 'arduino_tab') and self.arduino_tab.connected:
+            try:
+                self.arduino_tab.on_connection_lost()
+            except Exception:
+                pass
+
+        # Clean up SDK state (best-effort — handle is likely invalid)
+        try:
+            AVS_Done()
+        except Exception:
+            pass
+
+        self.handle = None
+        self._disconnect_in_progress = False
+
+        # Reset UI
+        self.device_info.setText("DISCONNECTED\nReconnect USB cable\nthen press Connect")
+        self.device_info.setStyleSheet("color: red; font-weight: bold;")
+        self.connect_btn.setEnabled(True)
+        self.start_btn.setEnabled(False)
+        self.live_btn.setEnabled(False)
+        self.stop_btn.setEnabled(False)
+        self.progress_bar.setValue(0)
+
+        self.log_status("ERROR: Spectrometer USB disconnected! Reconnect the cable and press Connect.")
+
+
+
+class LiveDisplayThread(QThread):
+    """Thread for continuous live display without saving or processing (Equivalent to Camera Workers)"""
+    spectrum_ready = Signal(np.ndarray, np.ndarray)  # wavelengths, spectrum
+    status_update = Signal(str)
+    error = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.handle = None
+        self.num_pixels = 0
+        self.wavelengths = None
+        self.running = False
+        self.integration_time = 10.0
+        self.start_pixel = 0
+        self.stop_pixel = 0
+
+    def set_parameters(self, handle, num_pixels, wavelengths, integration_time, start_pixel, stop_pixel):
+        self.handle = handle
+        self.num_pixels = num_pixels
+        self.wavelengths = wavelengths
+        self.integration_time = integration_time
+        self.start_pixel = start_pixel
+        self.stop_pixel = stop_pixel
+
+    def stop(self):
+        self.running = False
+        if self.handle:
+            try:
+                avs_stop_measure(self.handle)
+            except:
+                pass
+
+    def run(self):
+        self.running = True
+
+        # Ensure spectrometer is in clean state
+        try:
+            avs_stop_measure(self.handle)
+            time.sleep(0.1)
+        except:
+            pass
+
+        try:
+            # Configure for software trigger, single scan at a time
+            avs_use_high_res_adc(self.handle, True)
+
+            measconfig = MeasConfigType()
+            measconfig.m_StartPixel = self.start_pixel
+            measconfig.m_StopPixel = self.stop_pixel
+            measconfig.m_IntegrationTime = self.integration_time
+            measconfig.m_IntegrationDelay = 0
+            measconfig.m_NrAverages = 1
+            measconfig.m_CorDynDark_m_Enable = 0
+            measconfig.m_CorDynDark_m_ForgetPercentage = 0
+            measconfig.m_Smoothing_m_SmoothPix = 0
+            measconfig.m_Smoothing_m_SmoothModel = 0
+            measconfig.m_SaturationDetection = 1
+            measconfig.m_Trigger_m_Mode = 0  # Software trigger
+            measconfig.m_Trigger_m_Source = 0
+            measconfig.m_Trigger_m_SourceType = 0
+            measconfig.m_Control_m_StrobeControl = 0  # No laser
+            measconfig.m_Control_m_LaserDelay = 0
+            measconfig.m_Control_m_LaserWidth = 0
+            measconfig.m_Control_m_LaserWaveLength = 0.0
+            measconfig.m_Control_m_StoreToRam = 0
+
+            ret = avs_prepare_measure(self.handle, measconfig)
+            if ret != 0:
+                self.error.emit(f"Failed to prepare live display. Error code: {ret}")
+                return
+
+            self.status_update.emit("Live display started")
+
+            # Continuous acquisition loop
+            while self.running:
+                # Start single measurement (window_handle=0, nummeas=1)
+                ret = avs_measure(self.handle, 0, 1)
+                if ret != 0:
+                    if self.running:
+                        self.error.emit(f"Measurement error: {ret}")
+                    break
+
+                # Poll for data ready
+                timeout_count = 0
+                max_timeout = int((self.integration_time + 1000) / 10)  # Timeout based on integration time
+
+                while self.running:
+                    try:
+                        ready = avs_poll_scan(self.handle)
+                    except Exception:
+                        self.running = False
+                        break
+                    if ready:
+                        break
+                    time.sleep(0.01)
+                    timeout_count += 1
+                    if timeout_count > max_timeout:
+                        break
+
+                if not self.running:
+                    break
+
+                if not ready:
+                    continue  # Timeout, try again
+
+                # Get data
+                try:
+                    timestamp, spectrum = avs_get_scope_data(self.handle)
+
+                    # Calculate wavelength array for the configured range
+                    wavelength_array = np.array([self.wavelengths[i] for i in range(self.start_pixel, self.stop_pixel + 1)])
+
+                    # AVS_GetScopeData always returns a full 4096-element array.
+                    spectrum_array = np.array(spectrum[self.start_pixel:self.stop_pixel + 1])
+
+                    # Emit for display (no processing, no saving)
+                    self.spectrum_ready.emit(wavelength_array, spectrum_array)
+
+                except Exception as e:
+                    if self.running:
+                        self.status_update.emit(f"Live display error: {str(e)}")
+
+            self.status_update.emit("Live display stopped")
+
+        except Exception as e:
+            self.error.emit(f"Live display error: {str(e)}")
+
+        finally:
+            try:
+                avs_stop_measure(self.handle)
+            except:
+                pass
