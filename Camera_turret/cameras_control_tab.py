@@ -101,7 +101,7 @@ class CamerasControlTab(QWidget):
         path_layout = QVBoxLayout()
         path_row = QHBoxLayout()
     
-        save_box.setMinimumWidth(500)
+        save_box.setMinimumWidth(200)
         save_box.setMaximumWidth(800)
    
         self.path_edit = QLineEdit()

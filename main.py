@@ -2,7 +2,7 @@ import sys
 import cv2
 import numpy as np
 
-from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QMainWindow, QWidget, QTabWidget,QVBoxLayout, QHBoxLayout
+from PySide6.QtWidgets import QApplication, QGridLayout, QGroupBox, QLabel, QMainWindow, QWidget, QTabWidget,QVBoxLayout, QHBoxLayout
 from PySide6.QtCore import Qt, Slot,  QTimer
 from PySide6.QtGui import QImage, QPixmap
 
@@ -27,14 +27,15 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RAYOPS - Interaction Chamber Control Software")
-
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        self.setGeometry(screen_geometry)
         # Create a queue for inter-thread communication
         self.queue = Queue()
 
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout()
+        main_layout = QGridLayout()
         
         self.left_panel = QVBoxLayout() #Left panel will containt tabs
         self.tabs = QTabWidget()
@@ -62,24 +63,27 @@ class MainWindow(QMainWindow):
         self.right_panel = QVBoxLayout() #Right panel will containt video feeds and spectrum (and logs?)
         self.live_feeds()
 
-        main_layout.addLayout(self.left_panel)
-        main_layout.addLayout(self.right_panel)
-        main_layout.setStretch(0, 1)  # Left panel takes 1/3 of the space
-        main_layout.setStretch(1, 3)  # Right panel takes 2/3 of the space  
+        main_layout.addLayout(self.left_panel, 0, 0)
+        main_layout.addLayout(self.right_panel, 0, 1)
+        main_layout.setColumnStretch(0, 1)  
+        main_layout.setColumnStretch(1, 3)  
 
         central_widget.setLayout(main_layout)
-        self.camera_control_tab.ids_frame_updated.connect(self.update_image)
+        self.camera_control_tab.ids_frame_updated.connect(self.update_ids_image)
         self.camera_control_tab.usb_frame_updated.connect(self.update_usb_image)
 
     def live_feeds(self):
 
         self.feeds_layout = QVBoxLayout()
         self.camera_layout = QHBoxLayout()
+        ids_box = QGroupBox("IDS Camera")
+        usb_box = QGroupBox("USB Camera")
         # --------------------------------------------------------------
         # Live image widgets
         # --------------------------------------------------------------
+        self.ids_layout = QVBoxLayout()
         self.idsFeedWidget = QWidget()
-        self.idsFeedWidget.setFixedSize(720, 640)
+        self.idsFeedWidget.setMinimumSize(500, 200)
 
         self.idsImageLabel = QLabel(self.idsFeedWidget)
         self.idsImageLabel.setGeometry(self.idsFeedWidget.rect())
@@ -87,9 +91,12 @@ class MainWindow(QMainWindow):
 
         self.idsCrosshair = CrosshairOverlay(self.idsFeedWidget)
         self.idsCrosshair.setGeometry(self.idsFeedWidget.rect())
+        self.ids_layout.addWidget(self.idsFeedWidget)
+        ids_box.setLayout(self.ids_layout)
 
+        self.usb_layout = QVBoxLayout()
         self.usbFeedWidget = QWidget()
-        self.usbFeedWidget.setFixedSize(720, 480)
+        self.usbFeedWidget.setMinimumSize(500, 200)
 
         self.usbImageLabel = QLabel(self.usbFeedWidget)
         self.usbImageLabel.setGeometry(self.usbFeedWidget.rect())
@@ -97,6 +104,8 @@ class MainWindow(QMainWindow):
 
         self.usbCrosshair = CrosshairOverlay(self.usbFeedWidget)
         self.usbCrosshair.setGeometry(self.usbFeedWidget.rect())
+        self.usb_layout.addWidget(self.usbFeedWidget)
+        usb_box.setLayout(self.usb_layout)
 
         spectro_box = QGroupBox("Live Spectrum Data")
         spectro_layout = QVBoxLayout()
@@ -110,16 +119,15 @@ class MainWindow(QMainWindow):
         spectro_box.setLayout(spectro_layout)
 
         # Add the live feeds widget to the right panel
-        self.camera_layout.addWidget(self.idsFeedWidget)
-        self.camera_layout.addWidget(self.usbFeedWidget)
+        self.camera_layout.addWidget(ids_box)
+        self.camera_layout.addWidget(usb_box)
         self.feeds_layout.addLayout(self.camera_layout)
         self.feeds_layout.addWidget(spectro_box)
         self.right_panel.addLayout(self.feeds_layout)
 
 
     @Slot(np.ndarray, float)
-    def update_image(self, frame, timestamp):
-            print  # Print the first pixel value for debugging
+    def update_ids_image(self, frame, timestamp):
             self.current_ids_frame = frame
             self.current_ids_timestamp = timestamp
     
@@ -185,7 +193,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     window = MainWindow()
-    window.showMaximized()
+    #window.showMaximized()
     window.show()
 
     sys.exit(app.exec())
