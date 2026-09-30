@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
                                QSpinBox, QStatusBar, QSlider, QLineEdit, QStyle, QMessageBox, QFileDialog)
 from PySide6.QtCore import Signal, Qt, QThread, QSettings, QObject, Slot
 from PySide6.QtGui import  QAction, QPixmap, QImage
+from pathlib import Path
 
 import os
 import cv2
@@ -178,7 +179,27 @@ class CamerasControlTab(QWidget):
         layout.addLayout(ids_layout)
         layout.addLayout(usb_ctrl)
         layout.addStretch()
-    
+
+        try:
+            logo_label = QLabel()
+            base_dir = Path("__main__").resolve().parent
+            logo_path = base_dir / "GUI_Images" / "logo.png"
+            logo_pixmap = QPixmap(logo_path)
+            if not logo_pixmap.isNull():
+                # Scale logo to fit nicely (max width 300px)
+                scaled_logo = logo_pixmap.scaledToWidth(280, Qt.SmoothTransformation)
+                logo_label.setPixmap(scaled_logo)
+                logo_label.setAlignment(Qt.AlignHCenter | Qt.AlignBottom)
+                logo_label.setStyleSheet("padding: 5px;")
+                layout.addWidget(logo_label)
+
+            else:
+                print(f"⚠️ RAYOPS_logo.jpg not found at: {logo_path}")
+        except :
+            print(f"⚠️ Could not load logo")
+            pass  # Ignore if logo not found or fails to load   
+
+
     def create_usb_controls(self):
             usb_box = QGroupBox("RGB USB Camera Controls")
             usb_layout = QVBoxLayout()
@@ -757,7 +778,6 @@ class CamerasControlTab(QWidget):
 
     def shutdown(self):
         """Cleanly stop workers/cameras before the host application exits."""
-        self.stop_laser_test()
 
         if self.recording:
             self.stop_recording()

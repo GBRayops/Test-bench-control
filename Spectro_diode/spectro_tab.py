@@ -1,3 +1,4 @@
+from pathlib import Path
 import time
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -6,7 +7,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
                                QCheckBox, QProgressBar)
 from PySide6.QtCore import Signal, Qt, QThread, QSettings, QObject, Slot
 from PySide6.QtGui import  QAction , QPixmap
-from Spectro_diode.src.avaspec import *
+from Spectro_diode.avaspec import *
 import os
 import sys
 import numpy as np
@@ -17,7 +18,7 @@ import time
 # Check for simulation mode
 SIMULATION_MODE = '--simulate' in sys.argv
 if SIMULATION_MODE:
-    from Spectro_diode.src.hardware_simulator import (
+    from Spectro_diode.hardware_simulator import (
         AVS_Init_Sim, AVS_Done_Sim, AVS_GetNrOfDevices_Sim,
         AVS_UpdateUSBDevices_Sim, AVS_GetList_Sim, AVS_Activate_Sim,
         AVS_Deactivate_Sim, AVS_UseHighResAdc_Sim, AVS_GetNumPixels_Sim,
@@ -291,15 +292,17 @@ class SpectroTab(QWidget):
         # === RAYOPS LOGO ===
         try:
             logo_label = QLabel()
-            logo_path = r"C:\Users\guill\Desktop\Testbench Control\Camera_turret\GUI_Images\logo.png"
+            base_dir = Path("__main__").resolve().parent
+            logo_path = base_dir / "GUI_Images" / "logo.png"
             logo_pixmap = QPixmap(logo_path)
             if not logo_pixmap.isNull():
                 # Scale logo to fit nicely (max width 300px)
                 scaled_logo = logo_pixmap.scaledToWidth(280, Qt.SmoothTransformation)
                 logo_label.setPixmap(scaled_logo)
-                logo_label.setAlignment(Qt.Alignmain | Qt.AlignBottom)
+                logo_label.setAlignment(Qt.AlignHCenter | Qt.AlignBottom)
                 logo_label.setStyleSheet("padding: 5px;")
                 main_panel.addWidget(logo_label)
+
             else:
                 print(f"⚠️ RAYOPS_logo.jpg not found at: {logo_path}")
         except :
@@ -589,7 +592,7 @@ class SpectroTab(QWidget):
             return
         
         try:
-            from Spectro_diode.src.spectrum_analysis import (read_calibration_file, analyze_spectrum, KFactorCache)
+            from Spectro_diode.spectrum_analysis import (read_calibration_file, analyze_spectrum, KFactorCache)
 
             self.newLogMessage.emit("Starting post-processing analysis...")
             self.analyze_btn.setEnabled(False)

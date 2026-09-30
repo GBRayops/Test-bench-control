@@ -6,17 +6,18 @@ import numpy as np
 from PySide6.QtWidgets import QApplication, QGridLayout, QGroupBox, QLabel, QMainWindow, QWidget, QTabWidget,QVBoxLayout, QHBoxLayout
 from PySide6.QtCore import Qt, Slot,  QTimer
 from PySide6.QtGui import QImage, QPixmap
+from pathlib import Path
 
 
 from Camera_turret.camera_control.crosshair import CrosshairOverlay
 from Camera_turret.cameras_control_tab import CamerasControlTab
 from Camera_turret.turret_control_tab import TurretControlTab
 
-from Spectro_diode.src.avaspec import *
-from Spectro_diode.src.driver_control_tab import DriverControlTab
-from Spectro_diode.src.arduino_trigger_tab import ArduinoTriggerTab
+from Spectro_diode.avaspec import *
+from Spectro_diode.driver_control_tab import DriverControlTab
+from Spectro_diode.arduino_trigger_tab import ArduinoTriggerTab
 
-from Spectro_diode.src.spectro_tab import SpectroTab
+from Spectro_diode.spectro_tab import SpectroTab
 from queue import Queue
 
 
@@ -243,6 +244,28 @@ class LogTab(QWidget):
 
         layout.addWidget(self.log_label)
 
+                # === RAYOPS LOGO ===
+        try:
+            logo_label = QLabel()
+            base_dir = Path("__main__").resolve().parent
+            logo_path = base_dir / "GUI_Images" / "logo.png"
+            logo_pixmap = QPixmap(logo_path)
+            if not logo_pixmap.isNull():
+                # Scale logo to fit nicely (max width 300px)
+                scaled_logo = logo_pixmap.scaledToWidth(280, Qt.SmoothTransformation)
+                logo_label.setPixmap(scaled_logo)
+                logo_label.setAlignment(Qt.AlignHCenter | Qt.AlignBottom)
+                logo_label.setStyleSheet("padding: 5px;")
+                layout.addWidget(logo_label)
+
+            else:
+                print(f"⚠️ RAYOPS_logo.jpg not found at: {logo_path}")
+        except :
+            print(f"⚠️ Could not load logo")
+            pass  # Ignore if logo not found or fails to load     
+
+        self.setLayout(layout)
+
     @Slot(str)
     def update_log(self, message):
         now = datetime.now()
@@ -257,7 +280,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     window = MainWindow()
-    #window.showMaximized()
+    window.showMaximized()
     window.show()
 
     sys.exit(app.exec())

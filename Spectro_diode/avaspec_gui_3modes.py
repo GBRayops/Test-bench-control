@@ -30,15 +30,15 @@ import numpy as np
 
 # Enable OpenGL acceleration for smoother plotting
 pg.setConfigOptions(useOpenGL=True, antialias=True)
-from Spectro_diode.src.avaspec import *
-from Spectro_diode.src.driver_control_tab import DriverControlTab
-from Spectro_diode.src.arduino_trigger_tab import ArduinoTriggerTab
+from Spectro_diode.avaspec import *
+from Spectro_diode.driver_control_tab import DriverControlTab
+from Spectro_diode.arduino_trigger_tab import ArduinoTriggerTab
 from queue import Queue
 
 # Check for simulation mode
 SIMULATION_MODE = '--simulate' in sys.argv
 if SIMULATION_MODE:
-    from Spectro_diode.src.hardware_simulator import (
+    from Spectro_diode.hardware_simulator import (
         AVS_Init_Sim, AVS_Done_Sim, AVS_GetNrOfDevices_Sim,
         AVS_UpdateUSBDevices_Sim, AVS_GetList_Sim, AVS_Activate_Sim,
         AVS_Deactivate_Sim, AVS_UseHighResAdc_Sim, AVS_GetNumPixels_Sim,
@@ -1306,7 +1306,7 @@ class AvaSpecGUI(QMainWindow):
             return
         
         try:
-            from Spectro_diode.src.spectrum_analysis import (read_calibration_file, analyze_spectrum, KFactorCache)
+            from Spectro_diode.spectrum_analysis import (read_calibration_file, analyze_spectrum, KFactorCache)
 
             self.log_status("Starting post-processing analysis...")
             self.analyze_btn.setEnabled(False)
@@ -2764,7 +2764,7 @@ class AvaSpecGUI(QMainWindow):
 
     def simulate_driver_disconnect(self):
         """Simulate driver USB cable being unplugged"""
-        from Spectro_diode.src.hardware_simulator import simulate_driver_disconnect
+        from Spectro_diode.hardware_simulator import simulate_driver_disconnect
         if simulate_driver_disconnect():
             self.log_status("DEBUG: Simulated driver USB disconnect")
         else:
@@ -2772,7 +2772,7 @@ class AvaSpecGUI(QMainWindow):
 
     def simulate_arduino_disconnect(self):
         """Simulate Arduino USB cable being unplugged"""
-        from Spectro_diode.src.hardware_simulator import simulate_arduino_disconnect
+        from Spectro_diode.hardware_simulator import simulate_arduino_disconnect
         if simulate_arduino_disconnect():
             self.log_status("DEBUG: Simulated Arduino USB disconnect")
         else:
@@ -2780,7 +2780,7 @@ class AvaSpecGUI(QMainWindow):
 
     def simulate_toggle_interlock(self):
         """Toggle interlock protection status"""
-        from Spectro_diode.src.hardware_simulator import simulate_toggle_interlock
+        from Spectro_diode.hardware_simulator import simulate_toggle_interlock
         result = simulate_toggle_interlock()
         if result is not None:
             state = "ACTIVE" if result else "OK"
@@ -2790,7 +2790,7 @@ class AvaSpecGUI(QMainWindow):
 
     def simulate_toggle_crowbar(self):
         """Toggle crowbar protection status"""
-        from Spectro_diode.src.hardware_simulator import simulate_toggle_crowbar
+        from Spectro_diode.hardware_simulator import simulate_toggle_crowbar
         result = simulate_toggle_crowbar()
         if result is not None:
             state = "ACTIVE" if result else "OK"
@@ -2800,7 +2800,7 @@ class AvaSpecGUI(QMainWindow):
 
     def simulate_toggle_overcurrent(self):
         """Toggle overcurrent protection status"""
-        from Spectro_diode.src.hardware_simulator import simulate_toggle_overcurrent
+        from Spectro_diode.hardware_simulator import simulate_toggle_overcurrent
         result = simulate_toggle_overcurrent()
         if result is not None:
             state = "FAULT" if result else "OK"
@@ -2810,7 +2810,7 @@ class AvaSpecGUI(QMainWindow):
 
     def simulate_toggle_overheat(self):
         """Toggle overheat protection status"""
-        from Spectro_diode.src.hardware_simulator import simulate_toggle_overheat
+        from Spectro_diode.hardware_simulator import simulate_toggle_overheat
         result = simulate_toggle_overheat()
         if result is not None:
             state = "WARNING" if result else "OK"
@@ -2820,7 +2820,7 @@ class AvaSpecGUI(QMainWindow):
 
     def simulate_toggle_ntc_interlock(self):
         """Toggle NTC interlock protection status"""
-        from Spectro_diode.src.hardware_simulator import simulate_toggle_ntc_interlock
+        from Spectro_diode.hardware_simulator import simulate_toggle_ntc_interlock
         result = simulate_toggle_ntc_interlock()
         if result is not None:
             state = "ACTIVE" if result else "OK"

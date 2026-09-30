@@ -20,7 +20,7 @@ from PySide6.QtGui import QFont, QPixmap
 # Check for simulation mode
 SIMULATION_MODE = '--simulate' in sys.argv
 if SIMULATION_MODE:
-    from Spectro_diode.src.hardware_simulator import ArduinoTriggerSimulator
+    from Spectro_diode.hardware_simulator import ArduinoTriggerSimulator
 
 
 def resource_path(relative_path):
@@ -610,7 +610,7 @@ class ArduinoTriggerTab(QWidget):
                     self.reset_trigger_status_ui()
 
                     # Register simulator for disconnect testing
-                    from Spectro_diode.src.hardware_simulator import register_arduino_simulator
+                    from Spectro_diode.hardware_simulator import register_arduino_simulator
                     register_arduino_simulator(self.arduino)
 
                     # Start connection check timer
