@@ -19,6 +19,7 @@ from Camera_turret.camera_control.camera_status import CameraStatusBar
 class CamerasControlTab(QWidget):
     ids_frame_updated = Signal(np.ndarray, float)
     usb_frame_updated = Signal(np.ndarray, float)
+    newLogMessage = Signal(str)
     def __init__(self):
             super().__init__()
     
@@ -291,9 +292,7 @@ class CamerasControlTab(QWidget):
         self.usb_contrast_spin.valueChanged.connect(self.change_usb_contrast)
         self.usb_saturation_spin.valueChanged.connect(self.change_usb_saturation)
         self.usb_exposure_spin.valueChanged.connect(self.change_usb_exposure)
-        self.usb_resolution_combo.currentTextChanged.connect(
-            self.change_usb_resolution
-        )
+        self.usb_resolution_combo.currentTextChanged.connect(self.change_usb_resolution)
         self.usbCameraCombo.currentIndexChanged.connect(self.change_usb_index)
 
     def start_cameras(self):
@@ -331,9 +330,10 @@ class CamerasControlTab(QWidget):
                 self.usb_camera.height,
                 "MJPG",
             )
-
+            self.newLogMessage.emit("Cameras started successfully")
         except Exception as e:
-            QMessageBox.critical(self, "Camera Error", str(e))
+            self.newLogMessage.emit(f"Camera Error: {str(e)}")
+
 
     def stop_cameras(self):
         try:
@@ -348,8 +348,11 @@ class CamerasControlTab(QWidget):
 
             self.usbCameraCombo.setEnabled(True)
 
+            self.newLogMessage.emit("Cameras stopped successfully")
+
         except Exception as e:
             QMessageBox.warning(self, "Camera", str(e))
+        
 
     # ------------------------------------------------------------------
     # Recording
@@ -415,11 +418,7 @@ class CamerasControlTab(QWidget):
         ids_time = self.current_ids_timestamp
         usb_time = self.current_usb_timestamp
 
-        print(
-            "Capture time difference:",
-            abs(ids_time - usb_time),
-            "seconds",
-        )
+        self.newLogMessage.emit(f"Capture time difference: {abs(ids_time - usb_time)} seconds")
 
         ids_filename = os.path.join(
             self.save_path,
@@ -440,6 +439,7 @@ class CamerasControlTab(QWidget):
                 "Recording",
                 "No IDS image available.",
             )
+            self.newLogMessage.emit("No IDS image available for recording.")
             return
 
         if self.current_usb_frame is None:
@@ -448,6 +448,7 @@ class CamerasControlTab(QWidget):
                 "Recording",
                 "No USB image available.",
             )
+            self.newLogMessage.emit("No USB image available for recording.")
             return
 
         if self.save_path is None:
@@ -456,8 +457,10 @@ class CamerasControlTab(QWidget):
                 "Recording",
                 "No save folder selected.",
             )
+            self.newLogMessage.emit("No save folder selected for recording.")
             return
 
+        self.newLogMessage.emit("Camera Recording started")
         self.recording_start_time = time.perf_counter()
 
         ids_filename = os.path.join(
@@ -509,7 +512,7 @@ class CamerasControlTab(QWidget):
                 "Recording",
                 "Unable to create video.",
             )
-
+            self.newLogMessage.emit("Unable to create video.")
             self.ids_videoWriter = None
             self.usb_video_writer = None
             return
@@ -529,7 +532,7 @@ class CamerasControlTab(QWidget):
             self.usb_video_writer = None
 
         self.recording = False
-
+        self.newLogMessage.emit("Camera Recording stopped")
         self.idsStatusBar.stateLabel.setText("State: Running")
         self.usbStatusBar.stateLabel.setText("State: Running")
         self.recordButton.setText("Record")
@@ -592,6 +595,7 @@ class CamerasControlTab(QWidget):
                 "USB Camera Running",
                 "Cannot change USB camera while running",
             )
+            self.newLogMessage.emit("Cannot change USB camera while running.")
             return
 
         try:

@@ -1,0 +1,30 @@
+{
+  "port": "COM4",
+  "baudrate": 115200,
+  "update_hz": 200.0,
+  "simulation": false,
+  "azimuth": {
+    "node_id": 1,
+    "calibration_file": "",
+    "counts_per_rev": 16384,
+    "gear_ratio": 1.0,
+    "direction": 1,
+    "zero_offset_counts": 0,
+    "min_counts": null,
+    "max_counts": null,
+    "min_deg": -180.0,
+    "max_deg": 180.0
+  },
+  "elevation": {
+    "node_id": 2,
+    "calibration_file": "",
+    "counts_per_rev": 16384,
+    "gear_ratio": 1.0,
+    "direction": 1,
+    "zero_offset_counts": 0,
+    "min_counts": null,
+    "max_counts": null,
+    "min_deg": -90.0,
+    "max_deg": 90.0
+  }
+}

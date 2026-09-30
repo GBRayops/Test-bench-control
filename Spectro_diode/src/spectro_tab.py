@@ -60,6 +60,7 @@ def avs_get_scope_data(handle):
 
 
 class SpectroTab(QWidget):
+    newLogMessage = Signal(str)  # Signal to send log messages to main window
     def __init__(self):
         super().__init__()
         main_panel = QVBoxLayout()
@@ -311,17 +312,17 @@ class SpectroTab(QWidget):
     def connect_spectrometer(self):
             try:
                 if SIMULATION_MODE:
-                    self.log_status("🔧 SIMULATION MODE - Initializing simulated spectrometer...")
+                    self.newLogMessage.emit("🔧 SIMULATION MODE - Initializing simulated spectrometer...")
                     ret = AVS_Init_Sim(0)
                 else:
-                    self.log_status("Initializing Avantes library...")
+                    self.newLogMessage.emit("Initializing Avantes library...")
                     ret = AVS_Init(0)
     
                 if ret < 0:
-                    self.log_status(f"ERROR: Failed to initialize! Code: {ret}")
+                    self.newLogMessage.emit(f"ERROR: Failed to initialize! Code: {ret}")
                     return
     
-                self.log_status(f"Found {ret} device(s)")
+                self.newLogMessage.emit(f"Found {ret} device(s)")
     
                 if SIMULATION_MODE:
                     num_devices = AVS_GetNrOfDevices_Sim()
@@ -329,7 +330,7 @@ class SpectroTab(QWidget):
                     num_devices = AVS_GetNrOfDevices()
     
                 if num_devices == 0:
-                    self.log_status("ERROR: No spectrometers found!")
+                    self.newLogMessage.emit("ERROR: No spectrometers found!")
                     return
     
                 if SIMULATION_MODE:
@@ -340,7 +341,7 @@ class SpectroTab(QWidget):
                 self.serial = device_list[0].SerialNumber.decode("utf-8")
                 name = device_list[0].UserFriendlyName.decode("utf-8") if hasattr(device_list[0], 'UserFriendlyName') else "Simulated"
     
-                self.log_status(f"Connecting to: {self.serial}")
+                self.newLogMessage.emit(f"Connecting to: {self.serial}")
     
                 if SIMULATION_MODE:
                     self.handle = AVS_Activate_Sim(device_list[0])
@@ -352,7 +353,7 @@ class SpectroTab(QWidget):
                 else:
                     self.handle = AVS_Activate(device_list[0])
                     if self.handle == INVALID_AVS_HANDLE_VALUE:
-                        self.log_status("ERROR: Failed to activate spectrometer!")
+                        self.newLogMessage.emit("ERROR: Failed to activate spectrometer!")
                         return
                     # Enable high-resolution 16-bit ADC mode (65535 max vs 14-bit 16383)
                     avs_use_high_res_adc(self.handle, True)
@@ -411,8 +412,8 @@ class SpectroTab(QWidget):
                 is_external = hasattr(self, 'arduino_tab') and self.arduino_tab.is_external_mode()
                 self.live_btn.setEnabled(not is_external)
     
-                self.log_status("Connection successful!")
-                self.log_status(f"Wavelength range: {wl_min:.2f} - {wl_max:.2f} nm")
+                self.newLogMessage.emit("Connection successful!")
+                self.newLogMessage.emit(f"Wavelength range: {wl_min:.2f} - {wl_max:.2f} nm")
     
                 if not SIMULATION_MODE:
                     self._spectro_check_timer.start(200)  # Poll USB presence every 200 ms
@@ -421,7 +422,7 @@ class SpectroTab(QWidget):
                     self.arduino_tab.update_timing_display()
     
             except Exception as e:
-                self.log_status(f"ERROR: {str(e)}")
+                self.newLogMessage.emit(f"ERROR: {str(e)}")
     def update_wavelength_labels(self):
         """Update wavelength labels when start/stop pixel values change"""
         if self.wavelengths is None or not self.connected:
@@ -472,7 +473,7 @@ class SpectroTab(QWidget):
         )
         if file:
             self.calib_path.setText(file)
-            self.log_status(f"Calibration file selected: {os.path.basename(file)}")
+            self.newLogMessage.emit(f"Calibration file selected: {os.path.basename(file)}")
     
     def load_sequence_from_file(self):
         """Load a previously saved sequence CSV for viewing and analysis"""
@@ -487,7 +488,7 @@ class SpectroTab(QWidget):
             return
         
         try:
-            self.log_status(f"Loading sequence from: {os.path.basename(file)}")
+            self.newLogMessage.emit(f"Loading sequence from: {os.path.basename(file)}")
 
             # First, read metadata from comment lines to get ADC max
             adc_max_from_file = None
@@ -504,7 +505,7 @@ class SpectroTab(QWidget):
             # Update adc_max if found in file metadata
             if adc_max_from_file is not None:
                 self.adc_max = adc_max_from_file
-                self.log_status(f"  ADC Max from file: {self.adc_max}")
+                self.newLogMessage.emit(f"  ADC Max from file: {self.adc_max}")
 
             # Read CSV file with encoding fallback
             import pandas as pd
@@ -514,7 +515,7 @@ class SpectroTab(QWidget):
             for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
                 try:
                     df = pd.read_csv(file, comment='#', encoding=encoding)
-                    self.log_status(f"  Loaded with {encoding} encoding")
+                    self.newLogMessage.emit(f"  Loaded with {encoding} encoding")
                     break
                 except (UnicodeDecodeError, UnicodeError):
                     continue
@@ -566,11 +567,11 @@ class SpectroTab(QWidget):
             # Show first scan
             self.show_scan_by_index(0)
             
-            self.log_status(f"✓ Loaded {len(all_spectra)} spectra from file")
-            self.log_status(f"  Wavelength range: {wavelengths[0]:.2f} - {wavelengths[-1]:.2f} nm")
+            self.newLogMessage.emit(f"✓ Loaded {len(all_spectra)} spectra from file")
+            self.newLogMessage.emit(f"  Wavelength range: {wavelengths[0]:.2f} - {wavelengths[-1]:.2f} nm")
             
         except Exception as e:
-            self.log_status(f"❌ Error loading sequence: {str(e)}")
+            self.newLogMessage.emit(f"❌ Error loading sequence: {str(e)}")
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Load Error", f"Failed to load sequence:\n{str(e)}")
@@ -590,12 +591,12 @@ class SpectroTab(QWidget):
         try:
             from Spectro_diode.src.spectrum_analysis import (read_calibration_file, analyze_spectrum, KFactorCache)
 
-            self.log_status("Starting post-processing analysis...")
+            self.newLogMessage.emit("Starting post-processing analysis...")
             self.analyze_btn.setEnabled(False)
 
             # Load calibration
             wl_calib, K_calib = read_calibration_file(calib_file)
-            self.log_status(f"✓ Loaded calibration: {len(wl_calib)} wavelength points")
+            self.newLogMessage.emit(f"✓ Loaded calibration: {len(wl_calib)} wavelength points")
 
             # Analyze ALL spectra (including average and median)
             num_total = len(self.acquired_spectra)
@@ -620,36 +621,36 @@ class SpectroTab(QWidget):
             
             if detected_count > 0:
                 avg_temp = np.mean(temps)
-                self.log_status(f"✅ Analysis complete: {detected_count}/{num_total} spectra analyzed")
-                self.log_status(f"   Average temperature: {avg_temp:.0f} K")
+                self.newLogMessage.emit(f"✅ Analysis complete: {detected_count}/{num_total} spectra analyzed")
+                self.newLogMessage.emit(f"   Average temperature: {avg_temp:.0f} K")
                 
                 # Show all species detected
                 all_species = set()
                 for r in self.analysis_results:
                     all_species.update(r['species'])
                 if all_species:
-                    self.log_status(f"   Species detected: {', '.join(sorted(all_species))}")
+                    self.newLogMessage.emit(f"   Species detected: {', '.join(sorted(all_species))}")
             else:
-                self.log_status("⚠️ No Planck fits successful (low signal or out of range)")
+                self.newLogMessage.emit("⚠️ No Planck fits successful (low signal or out of range)")
             
             # Enable showing analysis on current scan
             if self.current_scan_index < num_total:
                 self.show_scan_with_analysis(self.current_scan_index)
             
         except Exception as e:
-            self.log_status(f"❌ Analysis error: {str(e)}")
+            self.newLogMessage.emit(f"❌ Analysis error: {str(e)}")
             QMessageBox.critical(self, "Analysis Error", f"Error during analysis:\n{str(e)}")
         finally:
             self.analyze_btn.setEnabled(True)
             self.export_plot_btn.setEnabled(True)
     def start_measurement(self):
         if not self.connected:
-            self.log_status("ERROR: Not connected to spectrometer!")
+            self.newLogMessage.emit("ERROR: Not connected to spectrometer!")
             return
         
         # Check if measurement is already running
         if hasattr(self, 'measurement_thread') and self.measurement_thread and self.measurement_thread.isRunning():
-            self.log_status("WARNING: Measurement already in progress!")
+            self.newLogMessage.emit("WARNING: Measurement already in progress!")
             return
         
         # Check if external trigger mode is active
@@ -671,11 +672,11 @@ class SpectroTab(QWidget):
             # 2. Spectrometer has a 10-second timeout - it will fail gracefully if no triggers arrive
             # 3. User might want to manually start measurement while Arduino is waiting/stopped
             
-            self.log_status("Using EXTERNAL trigger mode (Arduino synchronized)")
+            self.newLogMessage.emit("Using EXTERNAL trigger mode (Arduino synchronized)")
         
         # Validate start/stop pixel values
         if self.start_pixel.value() >= self.stop_pixel.value():
-            self.log_status("ERROR: Start pixel must be less than stop pixel!")
+            self.newLogMessage.emit("ERROR: Start pixel must be less than stop pixel!")
             return
         
         # Gather parameters
@@ -696,7 +697,7 @@ class SpectroTab(QWidget):
         
         trigger_mode = "External (Arduino)" if params['external_trigger'] else "Software"
         scan_label = "continuous" if params['num_scans'] == 0 else f"{params['num_scans']} scans"
-        self.log_status(f"Starting measurement: {scan_label}, {params['integration_time']}ms, {trigger_mode}")
+        self.newLogMessage.emit(f"Starting measurement: {scan_label}, {params['integration_time']}ms, {trigger_mode}")
         
         # Disable controls
         self.start_btn.setEnabled(False)
@@ -711,14 +712,14 @@ class SpectroTab(QWidget):
         #                                      adc_max=self.adc_max)
         #self.measurement_thread.progress.connect(self.update_progress)
         #self.measurement_thread.spectrum_ready.connect(self.display_spectrum)
-        #self.measurement_thread.status_update.connect(self.log_status)
+        #self.measurement_thread.status_update.connect(self.newLogMessage.emit)
         #self.measurement_thread.error.connect(self.handle_error)
         #self.measurement_thread.finished.connect(self.measurement_finished)
         #self.measurement_thread.data_acquired.connect(self.store_acquired_data)  # Store for navigation
         #self.measurement_thread.start()
     def stop_measurement(self):
         if self.measurement_thread:
-            self.log_status("Stopping measurement...")
+            self.newLogMessage.emit("Stopping measurement...")
             self.measurement_thread.stop()
 
         if not hasattr(self, 'arduino_tab'):
@@ -747,17 +748,17 @@ class SpectroTab(QWidget):
     def start_live_display(self):
         """Start continuous live spectrum display for alignment"""
         if not self.connected or self.handle is None:
-            self.log_status("Error: Spectrometer not connected")
+            self.newLogMessage.emit("Error: Spectrometer not connected")
             return
 
         # Check if measurement is running
         if self.measurement_thread and self.measurement_thread.isRunning():
-            self.log_status("Cannot start live display while measurement is running")
+            self.newLogMessage.emit("Cannot start live display while measurement is running")
             return
 
         # Check if in external trigger mode (disabled for live display)
         if hasattr(self, 'arduino_tab') and self.arduino_tab.is_external_mode():
-            self.log_status("Live display not available in external trigger mode")
+            self.newLogMessage.emit("Live display not available in external trigger mode")
             return
 
         self.live_display_active = True
@@ -795,12 +796,12 @@ class SpectroTab(QWidget):
 
         # Connect signals
         self.live_display_thread.spectrum_ready.connect(self.display_live_spectrum)
-        self.live_display_thread.status_update.connect(self.log_status)
-        self.live_display_thread.error.connect(self.log_status)
+        self.live_display_thread.status_update.connect(self.newLogMessage.emit)
+        self.live_display_thread.error.connect(self.newLogMessage.emit)
         self.live_display_thread.finished.connect(self.on_live_display_finished)
 
         self.live_display_thread.start()
-        self.log_status(f"Live display started (integration: {self.integration_time.value():.2f} ms)")
+        self.newLogMessage.emit(f"Live display started (integration: {self.integration_time.value():.2f} ms)")
 
     def stop_live_display(self):
         """Stop live display mode"""
@@ -868,7 +869,7 @@ class SpectroTab(QWidget):
         # Stop live display if switching to external mode
         if is_external and self.live_display_active:
             self.stop_live_display()
-            self.log_status("Live display stopped - external trigger mode selected")
+            self.newLogMessage.emit("Live display stopped - external trigger mode selected")
 
         # Disable averages in external trigger mode (each scan is a distinct laser shot)
         self.num_averages.setEnabled(not is_external)
@@ -884,7 +885,7 @@ class SpectroTab(QWidget):
             # Check if triggers are running
             if hasattr(self.arduino_tab, 'trigger_status_text'):
                 if self.arduino_tab.trigger_status_text.text() == "RUNNING":
-                    self.log_status(f"⚠️ Stopping Arduino triggers due to protection: {', '.join(protections)}")
+                    self.newLogMessage.emit(f"⚠️ Stopping Arduino triggers due to protection: {', '.join(protections)}")
                     if self.arduino_tab.arduino:
                         self.arduino_tab.arduino.stop()
                         self.arduino_tab.trigger_status.setStyleSheet("color: red;")
@@ -981,7 +982,7 @@ class SpectroTab(QWidget):
         self.apply_y_axis_limits()
 
     def handle_error(self, error_msg):
-        self.log_status(f"ERROR: {error_msg}")
+        self.newLogMessage.emit(f"ERROR: {error_msg}")
         QMessageBox.critical(self, "Measurement Error",
                              f"An error occurred during measurement:\n\n{error_msg}\n\n"
                              "Data may not have been saved correctly.")
@@ -990,7 +991,7 @@ class SpectroTab(QWidget):
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.progress_bar.setValue(100)
-        self.log_status("Measurement sequence complete")
+        self.newLogMessage.emit("Measurement sequence complete")
         
         # Enable navigation controls if we have acquired data
         if len(self.acquired_spectra) > 0:
@@ -1009,24 +1010,24 @@ class SpectroTab(QWidget):
             if self.postproc_enable.isChecked():
                 calib_file = self.calib_path.text()
                 if calib_file and os.path.exists(calib_file):
-                    self.log_status("Auto post-processing enabled - starting analysis...")
+                    self.newLogMessage.emit("Auto post-processing enabled - starting analysis...")
                     self.run_postprocessing()
                 else:
-                    self.log_status("⚠️ Auto post-processing enabled but no calibration file set")
+                    self.newLogMessage.emit("⚠️ Auto post-processing enabled but no calibration file set")
         
     def disconnect_spectrometer(self):
         """Properly disconnect from spectrometer"""
         self._spectro_check_timer.stop()
         if self.connected and self.handle:
             try:
-                self.log_status("Disconnecting from spectrometer...")
+                self.newLogMessage.emit("Disconnecting from spectrometer...")
                 AVS_Deactivate(self.handle)
                 AVS_Done()
                 self.connected = False
                 self.handle = None
-                self.log_status("Spectrometer disconnected successfully")
+                self.newLogMessage.emit("Spectrometer disconnected successfully")
             except Exception as e:
-                self.log_status(f"Error during disconnect: {str(e)}")
+                self.newLogMessage.emit(f"Error during disconnect: {str(e)}")
 
     def _check_spectrometer_connection(self):
         """Periodic USB presence check — fallback in case nativeEvent doesn't fire."""
@@ -1080,7 +1081,7 @@ class SpectroTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.progress_bar.setValue(0)
 
-        self.log_status("ERROR: Spectrometer USB disconnected! Reconnect the cable and press Connect.")
+        self.newLogMessage.emit("ERROR: Spectrometer USB disconnected! Reconnect the cable and press Connect.")
 
 
 
@@ -1152,10 +1153,10 @@ class LiveDisplayThread(QThread):
 
             ret = avs_prepare_measure(self.handle, measconfig)
             if ret != 0:
-                self.error.emit(f"Failed to prepare live display. Error code: {ret}")
+                self.newLogMessage.emit(f"Failed to prepare live display. Error code: {ret}")
                 return
 
-            self.status_update.emit("Live display started")
+            self.newLogMessage.emit("Live display started")
 
             # Continuous acquisition loop
             while self.running:
@@ -1163,7 +1164,7 @@ class LiveDisplayThread(QThread):
                 ret = avs_measure(self.handle, 0, 1)
                 if ret != 0:
                     if self.running:
-                        self.error.emit(f"Measurement error: {ret}")
+                        self.newLogMessage.emit(f"Measurement error: {ret}")
                     break
 
                 # Poll for data ready
@@ -1204,12 +1205,12 @@ class LiveDisplayThread(QThread):
 
                 except Exception as e:
                     if self.running:
-                        self.status_update.emit(f"Live display error: {str(e)}")
+                        self.newLogMessage.emit(f"Live display error: {str(e)}")
 
-            self.status_update.emit("Live display stopped")
+            self.newLogMessage.emit("Live display stopped")
 
         except Exception as e:
-            self.error.emit(f"Live display error: {str(e)}")
+            self.newLogMessage.emit(f"Live display error: {str(e)}")
 
         finally:
             try:
