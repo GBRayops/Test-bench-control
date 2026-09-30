@@ -1,3 +1,4 @@
+from datetime import datetime
 import sys
 import cv2
 import numpy as np
@@ -7,11 +8,10 @@ from PySide6.QtCore import Qt, Slot,  QTimer
 from PySide6.QtGui import QImage, QPixmap
 
 
-from Camera_turret.camera_control.camera_status import CameraStatusBar
 from Camera_turret.camera_control.crosshair import CrosshairOverlay
-
-
 from Camera_turret.cameras_control_tab import CamerasControlTab
+from Camera_turret.turret_control_tab import TurretControlTab
+
 from Spectro_diode.src.avaspec import *
 from Spectro_diode.src.driver_control_tab import DriverControlTab
 from Spectro_diode.src.arduino_trigger_tab import ArduinoTriggerTab
@@ -49,10 +49,19 @@ class MainWindow(QMainWindow):
 
         self.spectro_tab = SpectroTab()
 
+        self.turret_control_tab = TurretControlTab()
+
+        self.log_tab = LogTab()
+
+        
+        
+
         self.tabs.addTab(self.spectro_tab, "Spectrometer Control")
         self.tabs.addTab(self.driver_control_tab, "Driver Control")
         self.tabs.addTab(self.arduino_trigger_tab, "Trigger Sync")
         self.tabs.addTab(self.camera_control_tab, "CAMs Control")
+        self.tabs.addTab(self.turret_control_tab, "Turret Control")
+        self.tabs.addTab(self.log_tab, "Logs")
 
         # Add the tabs to the left panel
         self.left_panel.addWidget(self.tabs)
@@ -67,8 +76,13 @@ class MainWindow(QMainWindow):
 
         central_widget.setLayout(main_layout)
 
+
+        # Connect signals
         self.camera_control_tab.ids_frame_updated.connect(self.update_ids_image)
         self.camera_control_tab.usb_frame_updated.connect(self.update_usb_image)
+        
+        self.turret_control_tab.newLogMessage.connect(self.log_tab.update_log)
+        self.camera_control_tab.newLogMessage.connect(self.log_tab.update_log)
 
     def live_feeds(self):
 
@@ -110,7 +124,7 @@ class MainWindow(QMainWindow):
         spectro_box = QGroupBox("Live Spectrum Data")
         spectro_layout = QVBoxLayout()
         self.spectroFeedWidget = QWidget()
-        self.spectroFeedWidget.setFixedSize(1080, 640)
+        self.spectroFeedWidget.setFixedSize(1080, 400)
         self.spectroImageLabel = QLabel(self.spectroFeedWidget)
         self.spectroImageLabel.setGeometry(self.spectroFeedWidget.rect())
         self.spectroImageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -185,7 +199,57 @@ class MainWindow(QMainWindow):
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
+    def closeEvent(self, event):
 
+        # ------------------------------------------------------------
+        # Shut down camera page
+        # ------------------------------------------------------------
+
+        if hasattr(self.camera_control_tab, "shutdown"):
+
+            try:
+                self.camera_control_tab.shutdown()
+
+            except Exception as e:
+                print(
+                    f"Camera shutdown error: {e}"
+                )
+
+        # ------------------------------------------------------------
+        # Shut down turret page
+        # ------------------------------------------------------------
+
+        if hasattr(self.turret_control_tab, "shutdown"):
+
+            try:
+                self.turret_control_tab.shutdown()
+
+            except Exception as e:
+                print(
+                    f"Turret shutdown error: {e}"
+                )
+
+        event.accept()
+
+class LogTab(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        layout = QVBoxLayout(self)
+
+        self.log_label = QLabel("Log messages will appear here.")
+        self.log_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.log_label.setWordWrap(True)
+
+        layout.addWidget(self.log_label)
+
+    @Slot(str)
+    def update_log(self, message):
+        now = datetime.now()
+        formatted_timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        current_text = self.log_label.text()
+        new_text = f"{current_text}\n{formatted_timestamp} : {message}"
+        self.log_label.setText(new_text)
 
 
 def main():
