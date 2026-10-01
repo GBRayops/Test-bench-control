@@ -30,15 +30,15 @@ import numpy as np
 
 # Enable OpenGL acceleration for smoother plotting
 pg.setConfigOptions(useOpenGL=True, antialias=True)
-from Spectro_diode.avaspec import *
-from Spectro_diode.driver_control_tab import DriverControlTab
-from Spectro_diode.arduino_trigger_tab import ArduinoTriggerTab
+from avaspec import *
+from driver_control_tab import DriverControlTab
+from arduino_trigger_tab import ArduinoTriggerTab
 from queue import Queue
 
 # Check for simulation mode
 SIMULATION_MODE = '--simulate' in sys.argv
 if SIMULATION_MODE:
-    from Spectro_diode.hardware_simulator import (
+    from hardware_simulator import (
         AVS_Init_Sim, AVS_Done_Sim, AVS_GetNrOfDevices_Sim,
         AVS_UpdateUSBDevices_Sim, AVS_GetList_Sim, AVS_Activate_Sim,
         AVS_Deactivate_Sim, AVS_UseHighResAdc_Sim, AVS_GetNumPixels_Sim,

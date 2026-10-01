@@ -13,7 +13,7 @@ import sys
 try:
     from Spectro_diode.sf6100_serial import SF6100Serial
 except:
-    from Spectro_diode.sf6100_serial import SF6100Serial
+    from sf6100_serial import SF6100Serial
 
 # Check for simulation mode
 SIMULATION_MODE = '--simulate' in sys.argv

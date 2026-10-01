@@ -2,12 +2,13 @@ from datetime import datetime
 import sys
 import cv2
 import numpy as np
+from pathlib import Path
+
 
 from PySide6.QtWidgets import QApplication, QGridLayout, QGroupBox, QLabel, QMainWindow, QWidget, QTabWidget,QVBoxLayout, QHBoxLayout
 from PySide6.QtCore import Qt, Slot,  QTimer
 from PySide6.QtGui import QImage, QPixmap
-from pathlib import Path
-
+import pyqtgraph as pg
 
 from Camera_turret.camera_control.crosshair import CrosshairOverlay
 from Camera_turret.cameras_control_tab import CamerasControlTab
@@ -16,8 +17,9 @@ from Camera_turret.turret_control_tab import TurretControlTab
 from Spectro_diode.avaspec import *
 from Spectro_diode.driver_control_tab import DriverControlTab
 from Spectro_diode.arduino_trigger_tab import ArduinoTriggerTab
-
 from Spectro_diode.spectro_tab import SpectroTab
+from Spectro_diode.chat_specto import Spectrometer
+
 from queue import Queue
 
 
@@ -41,22 +43,18 @@ class MainWindow(QMainWindow):
         # Create the tabs
 
         self.driver_control_tab = DriverControlTab(self.queue)
-        #self.driver_control_tab.status_update.connect(self.log_status)
-        #self.driver_control_tab.protection_activated.connect(self.on_protection_activated)
+        
+        
 
         self.arduino_trigger_tab = ArduinoTriggerTab(self.queue)
-
         self.camera_control_tab = CamerasControlTab()
-
         self.spectro_tab = SpectroTab()
-
+        self.spectrometer = Spectrometer()
+        self.spectro_tab.spectrum_ready.connect(self.update_spectrum)
         self.turret_control_tab = TurretControlTab()
-
         self.log_tab = LogTab()
 
         
-        
-
         self.tabs.addTab(self.spectro_tab, "Spectrometer Control")
         self.tabs.addTab(self.driver_control_tab, "Driver Control")
         self.tabs.addTab(self.arduino_trigger_tab, "Trigger Sync")
@@ -77,11 +75,16 @@ class MainWindow(QMainWindow):
 
         central_widget.setLayout(main_layout)
 
+        #self.spectrum_curve = self.plot_widget.plot([], [], pen=pg.mkPen('b', width=2))
 
         # Connect signals
+        self.driver_control_tab.protection_activated.connect(self.on_protection_activated)
+
         self.camera_control_tab.ids_frame_updated.connect(self.update_ids_image)
         self.camera_control_tab.usb_frame_updated.connect(self.update_usb_image)
-        
+
+
+        self.driver_control_tab.status_update.connect(self.log_tab.update_log)
         self.turret_control_tab.newLogMessage.connect(self.log_tab.update_log)
         self.camera_control_tab.newLogMessage.connect(self.log_tab.update_log)
 
@@ -96,7 +99,7 @@ class MainWindow(QMainWindow):
         # --------------------------------------------------------------
         self.ids_layout = QVBoxLayout()
         self.idsFeedWidget = QWidget()
-        self.idsFeedWidget.setMinimumSize(500, 200)
+        self.idsFeedWidget.setFixedSize(500, 500)
 
         self.idsImageLabel = QLabel(self.idsFeedWidget)
         self.idsImageLabel.setGeometry(self.idsFeedWidget.rect())
@@ -110,7 +113,7 @@ class MainWindow(QMainWindow):
 
         self.usb_layout = QVBoxLayout()
         self.usbFeedWidget = QWidget()
-        self.usbFeedWidget.setMinimumSize(500, 200)
+        self.usbFeedWidget.setFixedSize(500, 500)
 
         self.usbImageLabel = QLabel(self.usbFeedWidget)
         self.usbImageLabel.setGeometry(self.usbFeedWidget.rect())
@@ -122,15 +125,15 @@ class MainWindow(QMainWindow):
         self.usb_layout.addWidget(self.camera_control_tab.usbStatusBar)
         usb_box.setLayout(self.usb_layout)
 
-        spectro_box = QGroupBox("Live Spectrum Data")
+        spectro_box = QGroupBox("Spectrometer Data")
         spectro_layout = QVBoxLayout()
-        self.spectroFeedWidget = QWidget()
-        self.spectroFeedWidget.setFixedSize(1080, 400)
-        self.spectroImageLabel = QLabel(self.spectroFeedWidget)
-        self.spectroImageLabel.setGeometry(self.spectroFeedWidget.rect())
-        self.spectroImageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.spectroCrosshair = CrosshairOverlay(self.spectroFeedWidget)
-        self.spectroCrosshair.setGeometry(self.spectroFeedWidget.rect())
+        self.spectrum_graph = pg.PlotWidget(pen=pg.mkPen('b', width=2), clear=True)
+        self.spectrum_plot = self.spectrum_graph.plot([], [], pen=pg.mkPen('b', width=2))
+        self.spectrum_graph.setFixedSize(1100, 400)
+        self.spectrum_graph.setLabel('left', 'Intensity', units='counts')
+        self.spectrum_graph.setLabel('bottom', 'Wavelength', units='nm')
+        self.spectrum_graph.setBackground('w')
+        spectro_layout.addWidget(self.spectrum_graph)
         spectro_box.setLayout(spectro_layout)
 
         # Add the live feeds widget to the right panel
@@ -138,8 +141,25 @@ class MainWindow(QMainWindow):
         self.camera_layout.addWidget(usb_box)
         self.feeds_layout.addLayout(self.camera_layout)
         self.feeds_layout.addWidget(spectro_box)
+    
         self.right_panel.addLayout(self.feeds_layout)
 
+
+
+    def on_protection_activated(self, protections):
+        """Handle protection activation from driver tab - stop Arduino triggers"""
+        if hasattr(self, 'arduino_trigger_tab') and self.arduino_trigger_tab.connected:
+            # Check if triggers are running
+            if hasattr(self.arduino_trigger_tab, 'trigger_status_text'):
+                if self.arduino_trigger_tab.trigger_status_text.text() == "RUNNING":
+                    self.log_status(f"⚠️ Stopping Arduino triggers due to protection: {', '.join(protections)}")
+                    if self.arduino_trigger_tab.arduino:
+                        self.arduino_trigger_tab.arduino.stop()
+                        self.arduino_trigger_tab.trigger_status.setStyleSheet("color: red;")
+                        self.arduino_trigger_tab.trigger_status_text.setText("STOPPED")
+                        self.arduino_trigger_tab.trigger_status_text.setStyleSheet("font-weight: bold; color: red;")
+                        self.arduino_trigger_tab.start_btn.setEnabled(True)
+                        self.arduino_trigger_tab.stop_btn.setEnabled(False)
 
     @Slot(np.ndarray, float)
     def update_ids_image(self, frame, timestamp):
@@ -200,6 +220,21 @@ class MainWindow(QMainWindow):
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
+    @Slot(object, object)        
+    def update_spectrum(self, wavelengths, spectrum):
+        """Display spectrum from live display mode (no processing)"""
+
+        self.wav = np.array(wavelengths, dtype=np.float32)
+        
+        self.spec = np.array(spectrum, dtype=np.float32)
+
+        # Update plot
+        #self.spectrum_graph.plot([], [])  # Clear previous plot
+        self.spectrum_plot.setData(self.wav, self.spec)
+
+        # Update title
+        self.spectrum_graph.setTitle('Spectrum - Live Display')
+
     def closeEvent(self, event):
 
         # ------------------------------------------------------------
