@@ -49,11 +49,11 @@ from PySide6.QtWidgets import (
     QComboBox,
 )
 
-from camera_control.IDS_camera import IDSCamera
-from camera_control.RGB_CAM import USBCamera, USBWorker
-from camera_control.camera_controller import CameraController
-from camera_control.camera_status import CameraStatusBar
-from camera_control.crosshair import CrosshairOverlay
+from internal.CAMs.IDS_camera import IDSCamera
+from internal.CAMs.RGB_CAM import USBCamera, USBWorker
+from internal.CAMs.camera_controller import CameraController
+from internal.CAMs.camera_status import CameraStatusBar
+from internal.CAMs.crosshair import CrosshairOverlay
 
 class CameraWindow(QMainWindow): #CameraWindow(QMainWindow) when using cam_only_main and CameraWindow(QWidget) for cam_and_turret_main 
 

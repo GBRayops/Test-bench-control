@@ -11,14 +11,14 @@ from PySide6.QtGui import QFont, QPixmap
 import os
 import sys
 try:
-    from Spectro_diode.sf6100_serial import SF6100Serial
+    from internal.Diode_driver.sf6100_serial import SF6100Serial
 except:
-    from sf6100_serial import SF6100Serial
+    from internal.Diode_driver.sf6100_serial import SF6100Serial
 
 # Check for simulation mode
 SIMULATION_MODE = '--simulate' in sys.argv
 if SIMULATION_MODE:
-    from Spectro_diode.hardware_simulator import SF6100Simulator
+    from internal.Spectro.hardware_simulator import SF6100Simulator
 
 
 def resource_path(relative_path):
@@ -522,7 +522,7 @@ class DriverControlTab(QWidget):
                 self.connect_btn.setStyleSheet("background-color: #f44336; color: white; font-weight: bold; padding: 8px;")
 
                 # Register simulator for disconnect testing
-                from Spectro_diode.hardware_simulator import register_driver_simulator
+                from internal.Spectro.hardware_simulator import register_driver_simulator
                 register_driver_simulator(self.driver)
 
                 # Enable controls

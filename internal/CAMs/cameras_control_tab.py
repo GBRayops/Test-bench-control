@@ -1,148 +1,57 @@
-"""
-camera_page_pyside6.py
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+                               QComboBox, QGroupBox, QGridLayout, QDoubleSpinBox, 
+                               QSpinBox, QStatusBar, QSlider, QLineEdit, QStyle, QMessageBox, QFileDialog)
+from PySide6.QtCore import Signal, Qt, QThread, QSettings, QObject, Slot
+from PySide6.QtGui import  QAction, QPixmap, QImage
+from pathlib import Path
 
-PySide6 QWidget page for the RAYOPS IDS + USB camera application.
-
-This file is intended to be embedded in a QTabWidget.  The page itself is
-a QWidget and does not create or require a top-level window.
-"""
-
+import os
 import cv2
 import numpy as np
 import time
 import os
 import re
-from pathlib import Path
 
-from PySide6.QtCore import (
-    Qt,
-    Signal,
-    Slot,
-    QSettings,
-    QThread,
-    QTimer,
-    QObject,
-)
-
-from PySide6.QtGui import (
-    QAction,
-    QImage,
-    QPixmap,
-    QKeySequence,
-    QShortcut,
-)
-
-from PySide6.QtWidgets import (
-    QWidget,
-    QLabel,
-    QPushButton,
-    QSlider,
-    QSpinBox,
-    QDoubleSpinBox,
-    QFileDialog,
-    QMessageBox,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGridLayout,
-    QGroupBox,
-    QStatusBar,
-    QLineEdit,
-    QStyle,
-    QComboBox,
-)
-
+from internal.CAMs.camera_controller import CameraController
 from internal.CAMs.IDS_camera import IDSCamera
 from internal.CAMs.RGB_CAM import USBCamera, USBWorker
-from internal.CAMs.camera_controller import CameraController
 from internal.CAMs.camera_status import CameraStatusBar
-from internal.CAMs.crosshair import CrosshairOverlay
 
-
-class CameraPage(QWidget):
-
+class CamerasControlTab(QWidget):
+    ids_frame_updated = Signal(np.ndarray, float)
+    usb_frame_updated = Signal(np.ndarray, float)
+    newLogMessage = Signal(str)
     def __init__(self):
-        super().__init__()
-
-        self.ids_camera = IDSCamera()
-        self.usb_camera = USBCamera()
-
-        self.worker = None
-        self.worker_thread = None
-
-        self.usb_worker = None
-        self.usb_worker_thread = None
-
-        self.current_ids_frame = None
-        self.current_ids_timestamp = None
-
-        self.current_usb_frame = None
-        self.current_usb_timestamp = None
-
-        self.camera_controller = CameraController(
-            self.ids_camera,
-            self.usb_camera,
-        )
-
-        self.save_path = None
-
-        self.status = QStatusBar()
-
-        self._create_actions()
-        self._create_widgets()
-        self._create_layout()
-        self._connect_signals()
-
-        self.recording = False
-        self.ids_videoWriter = None
-        self.usb_video_writer = None
-
-        self.settings = QSettings("RAYOPS", "CameraViewer")
-
-        self.load_settings()
-        self._create_shortcuts()
-
-        self.laser_x = 0.5
-        self.laser_y = 0.5
-
-        self.turret_azimuth = 0.0
-        self.turret_elevation = 0.0
-
-        self.laser_test_timer = QTimer(self)
-        self.laser_test_timer.timeout.connect(self.update_laser_test)
-
-        self.laser_test_x = 0.0
-        self.laser_test_direction = 1
-        self.laser_test_y = 0.5
-
-        self.laser_test_speed = 10.0
-        self.laser_test_interval = 20
-
-    # ------------------------------------------------------------------
-    # UI creation
-    # ------------------------------------------------------------------
-
-    def center_feed(self, feed_widget, image_label, overlay=None):
-        x = (feed_widget.width() - image_label.width()) // 2
-        y = (feed_widget.height() - image_label.height()) // 2
-
-        image_label.move(x, y)
-
-        if overlay is not None:
-            overlay.setGeometry(image_label.geometry())
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-
-        self.center_feed(
-            self.idsFeedWidget,
-            self.idsImageLabel,
-            self.idsCrosshair,
-        )
-        self.center_feed(
-            self.usbFeedWidget,
-            self.usbImageLabel,
-            self.usbCrosshair,
-        )
+            super().__init__()
+    
+            self.ids_camera = IDSCamera()
+            self.usb_camera = USBCamera()
+    
+            self.worker = None
+            self.worker_thread = None
+    
+            self.usb_worker = None
+            self.usb_worker_thread = None
+    
+            self.current_ids_frame = None
+            self.current_ids_timestamp = None
+    
+            self.current_usb_frame = None
+            self.current_usb_timestamp = None
+    
+            self.camera_controller = CameraController(self.ids_camera, self.usb_camera)
+    
+            self.save_path = None
+            self.settings = QSettings("RAYOPS", "CameraViewer")
+            self.status = QStatusBar()
+    
+            self._create_actions()
+            self._create_widgets()
+            self._connect_signals()
+    
+            self.recording = False
+    
+            self.load_settings()
 
     def _create_actions(self):
         self.openAction = QAction("Open Camera", self)
@@ -150,42 +59,7 @@ class CameraPage(QWidget):
         self.captureAction = QAction("Capture", self)
         self.exitAction = QAction("Exit", self)
 
-
-    def _create_widgets(self):
-        # --------------------------------------------------------------
-        # Live image widgets
-        # --------------------------------------------------------------
-        self.idsFeedWidget = QWidget()
-        self.idsFeedWidget.setFixedSize(720, 640)
-
-        self.idsImageLabel = QLabel(self.idsFeedWidget)
-        self.idsImageLabel.setGeometry(self.idsFeedWidget.rect())
-        self.idsImageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.idsCrosshair = CrosshairOverlay(self.idsFeedWidget)
-        self.idsCrosshair.setGeometry(self.idsFeedWidget.rect())
-
-        self.usbFeedWidget = QWidget()
-        self.usbFeedWidget.setFixedSize(720, 480)
-
-        self.usbImageLabel = QLabel(self.usbFeedWidget)
-        self.usbImageLabel.setGeometry(self.usbFeedWidget.rect())
-        self.usbImageLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.usbCrosshair = CrosshairOverlay(self.usbFeedWidget)
-        self.usbCrosshair.setGeometry(self.usbFeedWidget.rect())
-
-        self.center_feed(
-            self.idsFeedWidget,
-            self.idsImageLabel,
-            self.idsCrosshair,
-        )
-        self.center_feed(
-            self.usbFeedWidget,
-            self.usbImageLabel,
-            self.usbCrosshair,
-        )
-
+    def _create_widgets(self):    
         # --------------------------------------------------------------
         # Buttons
         # --------------------------------------------------------------
@@ -194,6 +68,8 @@ class CameraPage(QWidget):
         self.captureButton = QPushButton("Capture")
         self.recordButton = QPushButton("Record")
 
+        self.idsStatusBar = CameraStatusBar()
+        self.usbStatusBar = CameraStatusBar()
         # --------------------------------------------------------------
         # IDS controls
         # --------------------------------------------------------------
@@ -201,258 +77,217 @@ class CameraPage(QWidget):
         self.exposureSpin.setRange(0.01, 1000)
         self.exposureSpin.setDecimals(2)
         self.exposureSpin.setSuffix(" ms")
-
+   
         self.gainSlider = QSlider(Qt.Orientation.Horizontal)
         self.gainSlider.setRange(0, 100)
-
+  
         self.gainSpin = QSpinBox()
         self.gainSpin.setRange(0, 100)
-
+    
         self.fpsSpin = QDoubleSpinBox()
         self.fpsSpin.setRange(1, 500)
         self.fpsSpin.setDecimals(2)
         self.fpsSpin.setSuffix(" FPS")
-
+    
         self.pixelClockSpin = QSpinBox()
         self.pixelClockSpin.setRange(5, 35)
         self.pixelClockSpin.setSuffix(" MHz")
-
+    
         # --------------------------------------------------------------
         # Save path
         # --------------------------------------------------------------
         save_box = QGroupBox("Save Path")
         path_layout = QVBoxLayout()
         path_row = QHBoxLayout()
-
-        save_box.setMinimumWidth(500)
+    
+        save_box.setMinimumWidth(200)
         save_box.setMaximumWidth(800)
-
+   
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
-
+   
         self.browse_btn = QPushButton()
         self.browse_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
-        )
+                self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
+            )
         self.browse_btn.setFixedSize(28, 28)
         self.browse_btn.clicked.connect(self.select_folder)
-
+    
         path_row.addWidget(self.path_edit)
         path_row.addWidget(self.browse_btn)
-
+    
         path_layout.addLayout(path_row)
         save_box.setLayout(path_layout)
-
-        # --------------------------------------------------------------
-        # Actions
-        # --------------------------------------------------------------
+    
+            # --------------------------------------------------------------
+            # Actions
+            # --------------------------------------------------------------
         buttonBox = QGroupBox("Actions")
         buttonLayout = QHBoxLayout()
-
+    
         buttonLayout.addWidget(self.startButton)
         buttonLayout.addWidget(self.stopButton)
         buttonLayout.addWidget(self.captureButton)
         buttonLayout.addWidget(self.recordButton)
-
+    
         buttonBox.setLayout(buttonLayout)
-
-        self.idsStatusBar = CameraStatusBar()
-        self.usbStatusBar = CameraStatusBar()
-
-        # --------------------------------------------------------------
-        # Logo
-        # --------------------------------------------------------------
-        logo_label = QLabel()
-
-        base_dir = Path(__file__).resolve().parent
-        logo_path = base_dir / "GUI_Images" / "logo.png"
-
-        if logo_path.exists():
-            logo = QPixmap(str(logo_path))
-            logo_label.setPixmap(
-                logo.scaled(
-                    200,
-                    100,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-
-        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
+   
         # --------------------------------------------------------------
         # IDS control panel
         # --------------------------------------------------------------
-        self.controlPanel = QWidget()
-
+    
         ids_control_panel = QGroupBox("IDS Camera Controls")
         grid = QGridLayout()
-
+   
         grid.addWidget(QLabel("Exposure"), 0, 0)
         grid.addWidget(self.exposureSpin, 0, 1)
-
+    
         grid.addWidget(QLabel("Gain"), 1, 0)
         grid.addWidget(self.gainSlider, 1, 1)
         grid.addWidget(self.gainSpin, 1, 2)
-
+    
         grid.addWidget(QLabel("Frame Rate"), 2, 0)
         grid.addWidget(self.fpsSpin, 2, 1)
-
+    
         grid.addWidget(QLabel("Pixel Clock"), 3, 0)
         grid.addWidget(self.pixelClockSpin, 3, 1)
-
+    
         ids_control_panel.setLayout(grid)
 
         ids_layout = QVBoxLayout()
-        ids_layout.addWidget(self.idsFeedWidget)
-        ids_layout.addWidget(self.idsStatusBar)
         ids_layout.addWidget(ids_control_panel)
-
-        # --------------------------------------------------------------
-        # USB control panel
-        # --------------------------------------------------------------
-        usb_layout = QVBoxLayout()
-        usb_layout.addWidget(self.usbFeedWidget)
-        usb_layout.addWidget(self.usbStatusBar)
-
+    
+    
+    # --------------------------------------------------------------
+    # USB control panel
+    # --------------------------------------------------------------
+        usb_ctrl = QVBoxLayout()
+    
         self.usb_control_panel = self.create_usb_controls()
-        usb_layout.addWidget(self.usb_control_panel)
-
-        feed_layout = QHBoxLayout()
-        feed_layout.addLayout(ids_layout, 1)
-        feed_layout.addLayout(usb_layout, 1)
-
+        usb_ctrl.addWidget(self.usb_control_panel)
+    
         actions_layout = QHBoxLayout()
         actions_layout.addWidget(buttonBox)
         actions_layout.addWidget(save_box)
-
-        self.startLaserTestButton = QPushButton("Start Laser")
-        self.stopLaserTestButton = QPushButton("Stop Laser")
-
-        laser_sim_box = QGroupBox("Laser displacement test")
-        laserLayout = QHBoxLayout()
-
-        laserLayout.addWidget(self.startLaserTestButton)
-        laserLayout.addWidget(self.stopLaserTestButton)
-
-        laser_sim_box.setLayout(laserLayout)
-        actions_layout.addWidget(laser_sim_box)
-
+    
+    
         # --------------------------------------------------------------
         # Main page layout
         # --------------------------------------------------------------
         layout = QVBoxLayout(self)
         layout.addLayout(actions_layout)
-        layout.addLayout(feed_layout)
+        layout.addLayout(ids_layout)
+        layout.addLayout(usb_ctrl)
         layout.addStretch()
-        layout.addWidget(logo_label)
 
-        self.controlPanel.setLayout(layout)
+        try:
+            logo_label = QLabel()
+            base_dir = Path("__main__").resolve().parent
+            logo_path = base_dir / "internal" / "GUI_Images" / "logo.png"
+            logo_pixmap = QPixmap(logo_path)
+            if not logo_pixmap.isNull():
+                # Scale logo to fit nicely (max width 300px)
+                scaled_logo = logo_pixmap.scaledToWidth(280, Qt.SmoothTransformation)
+                logo_label.setPixmap(scaled_logo)
+                logo_label.setAlignment(Qt.AlignHCenter | Qt.AlignBottom)
+                logo_label.setStyleSheet("padding: 5px;")
+                layout.addWidget(logo_label)
+
+            else:
+                print(f"⚠️ RAYOPS logo not found at: {logo_path}")
+        except :
+            print(f"⚠️ Could not load logo")
+            pass  # Ignore if logo not found or fails to load   
+
 
     def create_usb_controls(self):
-        usb_box = QGroupBox("RGB USB Camera")
-        usb_layout = QVBoxLayout()
-
-        port_selection = QHBoxLayout()
-        port_label = QLabel("Select USB Camera:")
-
-        self.usbCameraCombo = QComboBox()
-        self.usbCameraCombo.addItem("USB Camera 0", 0)
-        self.usbCameraCombo.addItem("USB Camera 1", 1)
-        self.usbCameraCombo.addItem("USB Camera 2", 2)
-
-        port_selection.addWidget(port_label)
-        port_selection.addWidget(self.usbCameraCombo)
-        usb_layout.addLayout(port_selection)
-
-        resolution_layout = QHBoxLayout()
-        resolution_label = QLabel("Resolution:")
-
-        self.usb_resolution_combo = QComboBox()
-        self.usb_resolution_combo.addItems([
-            "640 x 480",
-            "1280 x 720",
-            "1920 x 1080",
-        ])
-
-        resolution_layout.addWidget(resolution_label)
-        resolution_layout.addWidget(self.usb_resolution_combo)
-        usb_layout.addLayout(resolution_layout)
-
-        fps_layout = QHBoxLayout()
-        fps_label = QLabel("FPS:")
-
-        self.usb_fps_spin = QDoubleSpinBox()
-        self.usb_fps_spin.setRange(1.0, 120.0)
-        self.usb_fps_spin.setDecimals(1)
-        self.usb_fps_spin.setSingleStep(10.0)
-        self.usb_fps_spin.setValue(30.0)
-
-        fps_layout.addWidget(fps_label)
-        fps_layout.addWidget(self.usb_fps_spin)
-        usb_layout.addLayout(fps_layout)
-
-        brightness_layout = QHBoxLayout()
-        brightness_label = QLabel("Brightness (max. 64):")
-
-        self.usb_brightness_spin = QDoubleSpinBox()
-        self.usb_brightness_spin.setRange(0.0, 255.0)
-        self.usb_brightness_spin.setSingleStep(1.0)
-
-        brightness_layout.addWidget(brightness_label)
-        brightness_layout.addWidget(self.usb_brightness_spin)
-        usb_layout.addLayout(brightness_layout)
-
-        contrast_layout = QHBoxLayout()
-        contrast_label = QLabel("Contrast (max. 64):")
-
-        self.usb_contrast_spin = QDoubleSpinBox()
-        self.usb_contrast_spin.setRange(0.0, 255.0)
-        self.usb_contrast_spin.setSingleStep(1.0)
-
-        contrast_layout.addWidget(contrast_label)
-        contrast_layout.addWidget(self.usb_contrast_spin)
-        usb_layout.addLayout(contrast_layout)
-
-        saturation_layout = QHBoxLayout()
-        saturation_label = QLabel("Saturation (max. 128):")
-
-        self.usb_saturation_spin = QDoubleSpinBox()
-        self.usb_saturation_spin.setRange(0.0, 255.0)
-        self.usb_saturation_spin.setSingleStep(1.0)
-
-        saturation_layout.addWidget(saturation_label)
-        saturation_layout.addWidget(self.usb_saturation_spin)
-        usb_layout.addLayout(saturation_layout)
-
-        exposure_layout = QHBoxLayout()
-        exposure_label = QLabel("Exposure (log scale):")
-
-        self.usb_exposure_spin = QDoubleSpinBox()
-        self.usb_exposure_spin.setRange(-13.0, 0.0)
-        self.usb_exposure_spin.setSingleStep(0.5)
-
-        exposure_layout.addWidget(exposure_label)
-        exposure_layout.addWidget(self.usb_exposure_spin)
-        usb_layout.addLayout(exposure_layout)
-
-        usb_box.setLayout(usb_layout)
-        return usb_box
-
-    # ------------------------------------------------------------------
-    # Connections
-    # ------------------------------------------------------------------
-
-    def _create_layout(self):
-
-        layout = QVBoxLayout()
-
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        layout.addWidget(self.controlPanel)
-
-        self.setLayout(layout)
+            usb_box = QGroupBox("RGB USB Camera Controls")
+            usb_layout = QVBoxLayout()
+    
+            port_selection = QHBoxLayout()
+            port_label = QLabel("Select USB Camera:")
+    
+            self.usbCameraCombo = QComboBox()
+            self.usbCameraCombo.addItem("USB Camera 0", 0)
+            self.usbCameraCombo.addItem("USB Camera 1", 1)
+            self.usbCameraCombo.addItem("USB Camera 2", 2)
+    
+            port_selection.addWidget(port_label)
+            port_selection.addWidget(self.usbCameraCombo)
+            usb_layout.addLayout(port_selection)
+    
+            resolution_layout = QHBoxLayout()
+            resolution_label = QLabel("Resolution:")
+    
+            self.usb_resolution_combo = QComboBox()
+            self.usb_resolution_combo.addItems([
+                "640 x 480",
+                "1280 x 720",
+                "1920 x 1080"])
+    
+            resolution_layout.addWidget(resolution_label)
+            resolution_layout.addWidget(self.usb_resolution_combo)
+            usb_layout.addLayout(resolution_layout)
+    
+            fps_layout = QHBoxLayout()
+            fps_label = QLabel("FPS:")
+    
+            self.usb_fps_spin = QDoubleSpinBox()
+            self.usb_fps_spin.setRange(1.0, 120.0)
+            self.usb_fps_spin.setDecimals(1)
+            self.usb_fps_spin.setSingleStep(10.0)
+            self.usb_fps_spin.setValue(30.0)
+    
+            fps_layout.addWidget(fps_label)
+            fps_layout.addWidget(self.usb_fps_spin)
+            usb_layout.addLayout(fps_layout)
+    
+            brightness_layout = QHBoxLayout()
+            brightness_label = QLabel("Brightness (max. 64):")
+    
+            self.usb_brightness_spin = QDoubleSpinBox()
+            self.usb_brightness_spin.setRange(0.0, 255.0)
+            self.usb_brightness_spin.setSingleStep(1.0)
+    
+            brightness_layout.addWidget(brightness_label)
+            brightness_layout.addWidget(self.usb_brightness_spin)
+            usb_layout.addLayout(brightness_layout)
+    
+            contrast_layout = QHBoxLayout()
+            contrast_label = QLabel("Contrast (max. 64):")
+    
+            self.usb_contrast_spin = QDoubleSpinBox()
+            self.usb_contrast_spin.setRange(0.0, 255.0)
+            self.usb_contrast_spin.setSingleStep(1.0)
+    
+            contrast_layout.addWidget(contrast_label)
+            contrast_layout.addWidget(self.usb_contrast_spin)
+            usb_layout.addLayout(contrast_layout)
+    
+            saturation_layout = QHBoxLayout()
+            saturation_label = QLabel("Saturation (max. 128):")
+    
+            self.usb_saturation_spin = QDoubleSpinBox()
+            self.usb_saturation_spin.setRange(0.0, 255.0)
+            self.usb_saturation_spin.setSingleStep(1.0)
+    
+            saturation_layout.addWidget(saturation_label)
+            saturation_layout.addWidget(self.usb_saturation_spin)
+            usb_layout.addLayout(saturation_layout)
+    
+            exposure_layout = QHBoxLayout()
+            exposure_label = QLabel("Exposure (log scale):")
+    
+            self.usb_exposure_spin = QDoubleSpinBox()
+            self.usb_exposure_spin.setRange(-13.0, 0.0)
+            self.usb_exposure_spin.setSingleStep(0.5)
+    
+            exposure_layout.addWidget(exposure_label)
+            exposure_layout.addWidget(self.usb_exposure_spin)
+            usb_layout.addLayout(exposure_layout)
+    
+            usb_box.setLayout(usb_layout)
+            return usb_box
 
     def _connect_signals(self):
         self.startButton.clicked.connect(self.start_cameras)
@@ -478,17 +313,8 @@ class CameraPage(QWidget):
         self.usb_contrast_spin.valueChanged.connect(self.change_usb_contrast)
         self.usb_saturation_spin.valueChanged.connect(self.change_usb_saturation)
         self.usb_exposure_spin.valueChanged.connect(self.change_usb_exposure)
-        self.usb_resolution_combo.currentTextChanged.connect(
-            self.change_usb_resolution
-        )
+        self.usb_resolution_combo.currentTextChanged.connect(self.change_usb_resolution)
         self.usbCameraCombo.currentIndexChanged.connect(self.change_usb_index)
-
-        self.startLaserTestButton.clicked.connect(self.start_laser_test)
-        self.stopLaserTestButton.clicked.connect(self.stop_laser_test)
-
-    # ------------------------------------------------------------------
-    # Camera control
-    # ------------------------------------------------------------------
 
     def start_cameras(self):
         try:
@@ -525,17 +351,17 @@ class CameraPage(QWidget):
                 self.usb_camera.height,
                 "MJPG",
             )
-
+            self.newLogMessage.emit("Cameras started successfully")
         except Exception as e:
-            QMessageBox.critical(self, "Camera Error", str(e))
+            self.newLogMessage.emit(f"Camera Error: {str(e)}")
+
 
     def stop_cameras(self):
         try:
             self._stop_worker()
             self._stop_usb_worker()
-
             self.camera_controller.stop()
-
+        
             self.idsStatusBar.stateLabel.setText("State: Stopped")
             self.usbStatusBar.stateLabel.setText("State: Stopped")
             self.idsStatusBar.fpsLabel.setText("FPS: 0.0")
@@ -543,8 +369,11 @@ class CameraPage(QWidget):
 
             self.usbCameraCombo.setEnabled(True)
 
+            self.newLogMessage.emit("Cameras stopped successfully")
+
         except Exception as e:
             QMessageBox.warning(self, "Camera", str(e))
+        
 
     # ------------------------------------------------------------------
     # Recording
@@ -610,11 +439,7 @@ class CameraPage(QWidget):
         ids_time = self.current_ids_timestamp
         usb_time = self.current_usb_timestamp
 
-        print(
-            "Capture time difference:",
-            abs(ids_time - usb_time),
-            "seconds",
-        )
+        self.newLogMessage.emit(f"Capture time difference: {abs(ids_time - usb_time)} seconds")
 
         ids_filename = os.path.join(
             self.save_path,
@@ -635,6 +460,7 @@ class CameraPage(QWidget):
                 "Recording",
                 "No IDS image available.",
             )
+            self.newLogMessage.emit("No IDS image available for recording.")
             return
 
         if self.current_usb_frame is None:
@@ -643,6 +469,7 @@ class CameraPage(QWidget):
                 "Recording",
                 "No USB image available.",
             )
+            self.newLogMessage.emit("No USB image available for recording.")
             return
 
         if self.save_path is None:
@@ -651,8 +478,10 @@ class CameraPage(QWidget):
                 "Recording",
                 "No save folder selected.",
             )
+            self.newLogMessage.emit("No save folder selected for recording.")
             return
 
+        self.newLogMessage.emit("Camera Recording started")
         self.recording_start_time = time.perf_counter()
 
         ids_filename = os.path.join(
@@ -704,14 +533,13 @@ class CameraPage(QWidget):
                 "Recording",
                 "Unable to create video.",
             )
-
+            self.newLogMessage.emit("Unable to create video.")
             self.ids_videoWriter = None
             self.usb_video_writer = None
             return
 
         self.recording = True
         self.recordButton.setText("Stop Recording")
-
         self.idsStatusBar.stateLabel.setText("State: Recording...")
         self.usbStatusBar.stateLabel.setText("State: Recording...")
 
@@ -725,7 +553,7 @@ class CameraPage(QWidget):
             self.usb_video_writer = None
 
         self.recording = False
-
+        self.newLogMessage.emit("Camera Recording stopped")
         self.idsStatusBar.stateLabel.setText("State: Running")
         self.usbStatusBar.stateLabel.setText("State: Running")
         self.recordButton.setText("Record")
@@ -736,6 +564,259 @@ class CameraPage(QWidget):
         else:
             self.start_recording()
 
+
+    # ------------------------------------------------------------------
+    # Camera settings
+    # ------------------------------------------------------------------
+
+    def change_exposure(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_exposure(self.exposureSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Exposure", str(e))
+
+    def change_gain(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_gain(self.gainSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Gain", str(e))
+
+    def change_fps(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_framerate(self.fpsSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Frame Rate", str(e))
+
+    def change_pixel_clock(self, value=None):
+        if not self.ids_camera.initialized:
+            return
+
+        try:
+            self.ids_camera.set_pixel_clock(self.pixelClockSpin.value())
+        except Exception as e:
+            QMessageBox.warning(self, "Pixel Clock", str(e))
+
+    # ------------------------------------------------------------------
+    # USB settings
+    # ------------------------------------------------------------------
+
+    def change_usb_index(self, index):
+        if self.usb_camera.running:
+            QMessageBox.information(
+                self,
+                "USB Camera Running",
+                "Cannot change USB camera while running",
+            )
+            self.newLogMessage.emit("Cannot change USB camera while running.")
+            return
+
+        try:
+            self.usb_camera.close()
+            self.usb_camera.set_device_index(index)
+            self.usb_camera.open()
+        except Exception as e:
+            QMessageBox.warning(self, "USB Camera", str(e))
+
+    def change_usb_fps(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        brightness, contrast, sat, exposure = self.save_usb_settings()
+        was_running = self.usb_camera.running
+
+        try:
+            if was_running:
+                self._stop_usb_worker()
+                self.usb_camera.stop()
+
+            self.usb_camera.set_framerate(value)
+            actual = self.usb_camera.get_framerate()
+
+            self.usb_fps_spin.blockSignals(True)
+            self.usb_fps_spin.setValue(actual)
+            self.usb_fps_spin.blockSignals(False)
+
+            if was_running:
+                self.usb_camera.start()
+                self._start_usb_worker()
+                self.usb_camera.set_saturation(sat)
+                self.usb_camera.set_brightness(brightness)
+                self.usb_camera.set_contrast(contrast)
+                self.usb_camera.set_exposure(exposure)
+
+        except Exception:
+            pass
+
+    def save_usb_settings(self):
+        brightness = self.usb_camera.get_brightness()
+        contrast = self.usb_camera.get_contrast()
+        sat = self.usb_camera.get_saturation()
+        exposure = self.usb_camera.get_exposure()
+
+        return brightness, contrast, sat, exposure
+
+    def change_usb_brightness(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_brightness(value)
+            actual = self.usb_camera.get_brightness()
+
+            self.usb_brightness_spin.blockSignals(True)
+            self.usb_brightness_spin.setValue(actual)
+            self.usb_brightness_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_contrast(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_contrast(value)
+            actual = self.usb_camera.get_contrast()
+
+            self.usb_contrast_spin.blockSignals(True)
+            self.usb_contrast_spin.setValue(actual)
+            self.usb_contrast_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_saturation(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_saturation(value)
+            actual = self.usb_camera.get_saturation()
+
+            self.usb_saturation_spin.blockSignals(True)
+            self.usb_saturation_spin.setValue(actual)
+            self.usb_saturation_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_exposure(self, value):
+        if not self.usb_camera.initialized:
+            return
+
+        try:
+            self.usb_camera.set_exposure(value)
+            actual = self.usb_camera.get_exposure()
+
+            self.usb_exposure_spin.blockSignals(True)
+            self.usb_exposure_spin.setValue(actual)
+            self.usb_exposure_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def change_usb_resolution(self, text):
+        if not self.usb_camera.initialized:
+            return None
+
+        was_running = self.usb_camera.running
+
+        try:
+            width, height = map(int, text.split(" x "))
+
+            if was_running:
+                self._stop_usb_worker()
+                self.usb_camera.stop()
+
+            actual_width, actual_height = self.usb_camera.set_resolution(
+                width,
+                height,
+            )
+
+            if was_running:
+                self.usb_camera.start()
+                self._start_usb_worker()
+
+            return actual_width, actual_height
+
+        except Exception as e:
+            print(f"USB resolution error: {e}")
+            return None
+
+
+    # ------------------------------------------------------------------
+    # Settings
+    # ------------------------------------------------------------------
+
+    def load_settings(self):
+        # QWidget does not have saveGeometry/restoreGeometry semantics for
+        # the application's main window. Camera settings are still restored.
+        exposure = self.settings.value("exposure", 5.0, type=float)
+        gain = self.settings.value("gain", 0, type=int)
+        fps = self.settings.value("fps", 24.0, type=float)
+        pixel = self.settings.value("pixelClock", 34, type=int)
+
+        self.exposureSpin.setValue(exposure)
+        self.gainSpin.setValue(gain)
+        self.fpsSpin.setValue(fps)
+        self.pixelClockSpin.setValue(pixel)
+
+    def save_settings(self):
+        self.settings.setValue("exposure", self.exposureSpin.value())
+        self.settings.setValue("gain", self.gainSpin.value())
+        self.settings.setValue("fps", self.fpsSpin.value())
+        self.settings.setValue("pixelClock", self.pixelClockSpin.value())
+
+    # ------------------------------------------------------------------
+    # Page shutdown
+    # ------------------------------------------------------------------
+
+    def shutdown(self):
+        """Cleanly stop workers/cameras before the host application exits."""
+
+        if self.recording:
+            self.stop_recording()
+
+        try:
+            self._stop_worker()
+            self._stop_usb_worker()
+        except Exception as e:
+            print(f"Error stopping camera workers: {e}")
+
+        try:
+            if self.ids_camera.running:
+                self.ids_camera.stop()
+        except Exception as e:
+            print(f"Error stopping IDS camera: {e}")
+
+        try:
+            if self.usb_camera.running:
+                self.usb_camera.stop()
+        except Exception as e:
+            print(f"Error stopping USB camera: {e}")
+
+        try:
+            if self.ids_camera.initialized:
+                self.ids_camera.close()
+        except Exception as e:
+            print(f"Error closing IDS camera: {e}")
+
+        try:
+            if self.usb_camera.initialized:
+                self.usb_camera.close()
+        except Exception as e:
+            print(f"Error closing USB camera: {e}")
+
+        self.save_settings()
+
+    
+
+    
 
     # ------------------------------------------------------------------
     # Camera settings
@@ -918,116 +999,34 @@ class CameraPage(QWidget):
         except Exception as e:
             print(f"USB resolution error: {e}")
             return None
-
     # ------------------------------------------------------------------
-    # Display
+    # Status
     # ------------------------------------------------------------------
 
     @Slot(np.ndarray, float)
-    def update_image(self, frame, timestamp):
-        self.current_ids_frame = frame
-        self.current_ids_timestamp = timestamp
-
-        h, w = frame.shape
-
-        image = QImage(
-            frame.data,
-            w,
-            h,
-            frame.strides[0],
-            QImage.Format.Format_Grayscale8,
-        )
-
-        pixmap = QPixmap.fromImage(image)
-
-        self.idsImageLabel.setPixmap(
-            pixmap.scaled(
-                self.idsImageLabel.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-
-        if (
-            self.recording
-            and self.ids_videoWriter is not None
-            and self.usb_video_writer is not None
-            and self.current_usb_frame is not None
-        ):
-            self.ids_videoWriter.write(frame)
-            self.usb_video_writer.write(self.current_usb_frame)
+    def update_image(self, frame, timestamp):   
+        self.ids_frame_updated.emit(frame, timestamp)
 
     @Slot(np.ndarray, float)
     def update_usb_image(self, frame, timestamp):
-        self.current_usb_frame = frame
-        self.current_usb_timestamp = timestamp
+        self.usb_frame_updated.emit(frame, timestamp)
 
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    @Slot(float)
+    def update_usb_fps(self, fps):
+        self.usbStatusBar.fpsLabel.setText(f"FPS: {fps:.1f}")
 
-        h, w, channels = rgb_frame.shape
-        bytes_per_line = channels * w
+    @Slot(float)
+    def update_ids_fps(self, fps):
+        self.idsStatusBar.fpsLabel.setText(f"FPS: {fps:.1f}")
 
-        image = QImage(
-            rgb_frame.data,
-            w,
-            h,
-            bytes_per_line,
-            QImage.Format.Format_RGB888,
-        )
+    @Slot(str)
+    def worker_error(self, message):
+        QMessageBox.critical(self, "Camera Error", message)
 
-        pixmap = QPixmap.fromImage(image)
+    @Slot(str)
+    def usb_worker_error(self, error):
+        print(f"USB Camera Error: {error}")
 
-        self.usbImageLabel.setPixmap(
-            pixmap.scaled(
-                self.usbImageLabel.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-
-    # ------------------------------------------------------------------
-    # Settings
-    # ------------------------------------------------------------------
-
-    def load_settings(self):
-        # QWidget does not have saveGeometry/restoreGeometry semantics for
-        # the application's main window. Camera settings are still restored.
-        exposure = self.settings.value("exposure", 5.0, type=float)
-        gain = self.settings.value("gain", 0, type=int)
-        fps = self.settings.value("fps", 24.0, type=float)
-        pixel = self.settings.value("pixelClock", 34, type=int)
-
-        self.exposureSpin.setValue(exposure)
-        self.gainSpin.setValue(gain)
-        self.fpsSpin.setValue(fps)
-        self.pixelClockSpin.setValue(pixel)
-
-    def save_settings(self):
-        self.settings.setValue("exposure", self.exposureSpin.value())
-        self.settings.setValue("gain", self.gainSpin.value())
-        self.settings.setValue("fps", self.fpsSpin.value())
-        self.settings.setValue("pixelClock", self.pixelClockSpin.value())
-
-    # ------------------------------------------------------------------
-    # Shortcuts
-    # ------------------------------------------------------------------
-
-    def _create_shortcuts(self):
-        capture = QShortcut(QKeySequence("Space"), self)
-        capture.activated.connect(self.capture_images)
-
-        record = QShortcut(QKeySequence("Ctrl+R"), self)
-        record.activated.connect(self.toggle_recording)
-
-        open_camera = QShortcut(QKeySequence("Ctrl+O"), self)
-        open_camera.activated.connect(self.start_cameras)
-
-        close_camera = QShortcut(QKeySequence("Ctrl+W"), self)
-        close_camera.activated.connect(self.stop_cameras)
-
-    # ------------------------------------------------------------------
-    # Workers
-    # ------------------------------------------------------------------
 
     def _start_worker(self):
         if self.worker is not None:
@@ -1102,183 +1101,6 @@ class CameraPage(QWidget):
     def worker_finished(self):
         self.worker = None
         self.worker_thread = None
-
-    # ------------------------------------------------------------------
-    # Status
-    # ------------------------------------------------------------------
-
-    @Slot(float)
-    def update_usb_fps(self, fps):
-        self.usbStatusBar.fpsLabel.setText(f"FPS: {fps:.1f}")
-
-    @Slot(float)
-    def update_ids_fps(self, fps):
-        self.idsStatusBar.fpsLabel.setText(f"FPS: {fps:.1f}")
-
-    @Slot(str)
-    def worker_error(self, message):
-        QMessageBox.critical(self, "Camera Error", message)
-
-    @Slot(str)
-    def usb_worker_error(self, error):
-        print(f"USB Camera Error: {error}")
-
-    # ------------------------------------------------------------------
-    # Crosshairs / laser
-    # ------------------------------------------------------------------
-
-    def update_crosshairs(self):
-        ids_x, ids_y = self.map_laser_to_ids(self.laser_x,self.laser_y)
-
-        usb_x, usb_y = self.map_laser_to_usb(self.laser_x,self.laser_y)
-
-        self.idsCrosshair.set_position(ids_x, ids_y)
-        self.usbCrosshair.set_position(usb_x, usb_y)
-
-    def map_laser_to_ids(self, x, y):
-        #Calibration of the laser position in the IDS FOV
-        return x, y
-
-    def map_laser_to_usb(self, x, y):
-        #Calibration of the laser position in the USB FOV
-        return x, y
-
-    def set_laser_position(self, azimuth, elevation):
-
-        az_min = -30.0
-        az_max = 30.0
-
-        el_min = -20.0
-        el_max = 20.0
-
-        x = (
-            azimuth - az_min
-        ) / (
-            az_max - az_min
-        )
-
-        y = 1.0 - (
-            (elevation - el_min)
-            / (el_max - el_min)
-        )
-
-        x = max(0.0, min(1.0, x))
-        y = max(0.0, min(1.0, y))
-
-        self.laser_x = x
-        self.laser_y = y
-
-        self.update_crosshairs()
-
-        return 
-
-    def set_turret_azimuth(self, azimuth):
-
-        self.turret_azimuth = float(azimuth)
-
-        self.set_laser_position(self.turret_azimuth, self.turret_elevation)
-
-
-    def set_turret_elevation(self, elevation):
-
-        self.turret_elevation = float(elevation)
-
-        self.set_laser_position(self.turret_azimuth, self.turret_elevation)
-
-    def start_laser_test(self):
-
-        if self.laser_test_timer.isActive():
-            self.laser_test_timer.stop()
-
-        self.laser_test_x = 0.0
-        self.laser_test_direction = 1
-
-        feed_width = self.idsImageLabel.width()
-
-        if feed_width <= 0:
-            return
-
-        self.laser_test_step = (
-            self.laser_test_speed
-            * (self.laser_test_interval / 1000.0)
-            / feed_width
-        )
-
-        self.laser_test_timer.start(
-            self.laser_test_interval
-        )
-
-    def stop_laser_test(self):
-        if self.laser_test_timer.isActive():
-            self.laser_test_timer.stop()
-
-        try:
-            self.laser_test_timer.timeout.disconnect(
-                self.update_laser_test
-            )
-        except (TypeError, RuntimeError):
-            pass
-
-    def update_laser_test(self):
-        self.laser_test_x += (
-            self.laser_test_direction * self.laser_test_step
-        )
-
-        if self.laser_test_x >= 1.0:
-            self.laser_test_x = 1.0
-            self.laser_test_direction = -1
-
-        elif self.laser_test_x <= 0.0:
-            self.laser_test_x = 0.0
-            self.laser_test_direction = 1
-
-        self.set_laser_position(
-            self.laser_test_x,
-            self.laser_test_y,
-        )
-
-    # ------------------------------------------------------------------
-    # Page shutdown
-    # ------------------------------------------------------------------
-
-    def shutdown(self):
-        """Cleanly stop workers/cameras before the host application exits."""
-        self.stop_laser_test()
-
-        if self.recording:
-            self.stop_recording()
-
-        try:
-            self._stop_worker()
-            self._stop_usb_worker()
-        except Exception as e:
-            print(f"Error stopping camera workers: {e}")
-
-        try:
-            if self.ids_camera.running:
-                self.ids_camera.stop()
-        except Exception as e:
-            print(f"Error stopping IDS camera: {e}")
-
-        try:
-            if self.usb_camera.running:
-                self.usb_camera.stop()
-        except Exception as e:
-            print(f"Error stopping USB camera: {e}")
-
-        try:
-            if self.ids_camera.initialized:
-                self.ids_camera.close()
-        except Exception as e:
-            print(f"Error closing IDS camera: {e}")
-
-        try:
-            if self.usb_camera.initialized:
-                self.usb_camera.close()
-        except Exception as e:
-            print(f"Error closing USB camera: {e}")
-
-        self.save_settings()
 
 
 class CameraWorker(QObject):
@@ -1356,21 +1178,3 @@ class CameraWorker(QObject):
     def stop(self):
         self.running = False
 
-
-def main():
-    """Optional standalone test launcher for the QWidget page."""
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication([])
-    app.setStyle("Fusion")
-
-    page = CameraPage()
-    page.setWindowTitle("RAYOPS Camera Viewer")
-    page.resize(1400, 900)
-    page.show()
-
-    app.exec()
-
-
-if __name__ == "__main__":
-    main()

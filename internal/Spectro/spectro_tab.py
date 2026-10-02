@@ -1,4 +1,10 @@
+import os
+import time
+import numpy as np
 from pathlib import Path
+import pandas as pd
+from datetime import datetime
+
 
 from PySide6.QtCore import Signal, Slot, Qt, QSettings
 from PySide6.QtGui import QPixmap
@@ -19,7 +25,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from Spectro_diode.chat_specto import Spectrometer
+from internal.Spectro.spectro_ctrl import Spectrometer
 
 
 class SpectroTab(QWidget):
@@ -57,10 +63,14 @@ class SpectroTab(QWidget):
         # Spectrometer backend
         # ---------------------------------------------------------
         self.spectrometer = Spectrometer(self)
+        self.measurement_running = False
+        self.measurement_target = 0
+        self.measurement_count = 0
+        self.measurement_scans = []
 
         # Forward backend signals
         self.spectrometer.spectrum_ready.connect(
-            self._on_spectrum_ready
+            self._on_spectrum_received
         )
 
         self.spectrometer.status_update.connect(
@@ -83,15 +93,18 @@ class SpectroTab(QWidget):
         # Local state
         # ---------------------------------------------------------
         self.connected = False
+        self.isMeasuring = False
 
         self.settings = QSettings(
             "RAYOPS",
             "AvaSpecGUI"
         )
+       
 
         self._build_ui()
         self._load_settings()
-
+        self.calib_path = Path("calibration_factor.csv").resolve()
+        self.settings.setValue("calibration_file", str(self.calib_path))
     # ============================================================
     # UI
     # ============================================================
@@ -311,7 +324,7 @@ class SpectroTab(QWidget):
         file_layout = QVBoxLayout()
 
         self.save_enable = QCheckBox(
-            "Save scans to file"
+            "Auto-save scans to file"
         )
         self.save_enable.setChecked(True)
 
@@ -372,10 +385,10 @@ class SpectroTab(QWidget):
         )
 
         self.calib_path = QLineEdit()
-        self.calib_path.setPlaceholderText(
-            "Select calibration_factors.csv"
+        self.calib_path.setText(
+            self.settings.value(
+                "calibration_file")
         )
-
         calib_layout.addWidget(
             self.calib_path
         )
@@ -557,9 +570,9 @@ class SpectroTab(QWidget):
             base_dir = Path("__main__").resolve().parent
             logo_path = (
                 base_dir /
+                "internal" /
                 "GUI_Images" /
-                "logo.png"
-            )
+                "logo.png")
 
             logo_pixmap = QPixmap(logo_path)
 
@@ -773,6 +786,11 @@ class SpectroTab(QWidget):
             wavelengths,
             spectrum
         )
+        if self.isMeasuring:
+            self.progress_bar.setValue(
+                self.progress_bar.value() + 1
+            )
+            return wavelengths, spectrum
 
     # ============================================================
     # LIVE DISPLAY
@@ -971,19 +989,11 @@ class SpectroTab(QWidget):
     # MEASUREMENTS
     # ============================================================
 
-    @Slot()
     def start_measurement(self):
 
         if not self.connected:
             self.newLogMessage.emit(
                 "ERROR: Not connected to spectrometer."
-            )
-            return
-
-        if self.spectrometer.is_live_running():
-
-            self.newLogMessage.emit(
-                "Stop live display before starting a measurement."
             )
             return
 
@@ -1021,31 +1031,168 @@ class SpectroTab(QWidget):
                 self.save_path.text(),
         }
 
+        num_scans = params["num_scans"]
+        integration_time = params["integration_time"]
+        if num_scans <= 0:
+            self.newLogMessage.emit("Number of scans must be greater than 0.")
+            return
+
+        if not self.spectrometer.is_connected:
+            self.newLogMessage.emit("Spectrometer is not connected.")
+            return
+
+        # Stop live display before starting the measurement
+        if self.spectrometer.is_live_running():
+            self.spectrometer.stop_live()
+
+        # Get wavelengths from the spectrometer
+        wavelengths = self.spectrometer.wavelengths[self.start_pixel.value():self.stop_pixel.value() + 1]
+
+        if wavelengths is None:
+            self.newLogMessage.emit("Wavelength calibration is not available.")
+            return
+
+        # Storage for acquired spectra
+        self.measurement_scans = []
+
+        # Measurement state
+        self.measurement_running = True
+        self.measurement_target = num_scans
+        self.measurement_count = 0
+
         self.newLogMessage.emit(
-            "Starting measurement..."
+                f"Starting measurement: {num_scans} scans, "
+                f"{integration_time:.2f} ms integration time."
+            )
+
+            # Start acquisition
+        self.spectrometer.start_live(
+            integration_time=integration_time
         )
-
-        # The actual measurement implementation can
-        # subsequently be moved into Spectrometer as well.
-        #
-        # For now this intentionally does NOT reproduce
-        # the Avantes SDK code in the tab.
-
+                
+        self.newLogMessage.emit(
+                "Starting measurement..."
+            )
+        self.progress_bar.setMaximum(num_scans)
+        self.progress_bar.setValue(0)
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self.progress_bar.setValue(0)
+    
+    def _on_spectrum_received(self, wavelengths, spectrum):
+        """Handle every spectrum received from the spectrometer."""
 
-    @Slot()
+        # Always forward the spectrum to the live display
+        self._on_spectrum_ready(wavelengths, spectrum)
+        # Only collect data when a measurement is running
+        if not self.measurement_running:
+            return
+
+        self.measurement_scans.append(
+            np.asarray(spectrum).copy()
+        )
+
+        self.measurement_count += 1
+
+        self.newLogMessage.emit(
+            f"Acquired scan "
+            f"{self.measurement_count}/{self.measurement_target}"
+        )
+        self.progress_bar.setValue(self.measurement_count)
+        if self.measurement_count >= self.measurement_target:
+            self.finish_measurement()
+
+
+    def finish_measurement(self):
+        """Stop acquisition and save the acquired scans to CSV."""
+
+        if not self.measurement_running:
+            return
+
+        self.measurement_running = False
+
+        self.stop_live_display()
+
+        self.spectrometer.stop_live()
+
+        if not self.measurement_scans:
+            self.newLogMessage.emit("No spectra were acquired.")
+            return
+
+        wavelengths = np.asarray(self.spectrometer.wavelengths)[self.start_pixel.value():self.stop_pixel.value() + 1]
+
+        spectra = np.column_stack(
+                self.measurement_scans
+            )
+
+        header = ",".join(
+                ["Wavelength"] +
+                [
+                    f"Scan_{i}"
+                    for i in range(self.measurement_count)
+                ]
+            )
+        
+        data = np.column_stack(
+                (wavelengths, spectra)
+            )
+
+        if self.save_enable.isChecked() and self.save_path.text():
+            save_folder = Path(self.save_path.text())
+            save_folder.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = save_folder / f"spectrum_measurement_{timestamp}.csv"
+
+            np.savetxt(
+                filename,
+                data,
+                delimiter=",",
+                header=header,
+                comments="",
+                fmt="%.8g"
+            )
+
+            self.newLogMessage.emit(
+                f"Measurement saved: {filename}"
+            )
+        else:
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Spectrum Measurement",
+                "",
+                "CSV Files (*.csv)"
+            )
+
+            if not filename:
+                self.newLogMessage.emit(
+                    "Measurement completed but was not saved."
+                )
+                return
+
+            np.savetxt(
+                filename,
+                data,
+                delimiter=",",
+                header=header,
+                comments="",
+                fmt="%.8g"
+            )
+
+            self.newLogMessage.emit(
+                f"Measurement saved: {filename}"
+            )
+
     def stop_measurement(self):
-
-        # If your Spectrometer class later exposes
-        # start_measurement()/stop_measurement(), call
-        # those here.
-
-        self.stop_btn.setEnabled(False)
-
-        if self.connected:
+        """Stop the ongoing measurement."""
+        if self.measurement_running:
+            self.measurement_running = False
+            self.spectrometer.stop_live()
+            self.newLogMessage.emit("Measurement stopped by user.")
+            self.finish_measurement()
             self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+        else:
+            self.newLogMessage.emit("No measurement is currently running.")
 
     # ============================================================
     # ERROR HANDLING
@@ -1148,15 +1295,15 @@ class SpectroTab(QWidget):
     # CLEANUP
     # ============================================================
 
-    def closeEvent(self, event):
-
-        self._save_settings()
+    def shutdown(self):
 
         try:
+            self._save_settings()
+            self.stop_live_display()
+            self.stop_measurement()
+            self.spectrometer.stop_live()
             self.spectrometer.disconnect()
         except Exception as e:
             self.newLogMessage.emit(
                 f"Error disconnecting spectrometer: {e}"
             )
-
-        event.accept()

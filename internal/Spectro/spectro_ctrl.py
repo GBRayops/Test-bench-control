@@ -3,7 +3,7 @@ import numpy as np
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from Spectro_diode.avaspec import (
+from internal.Spectro.avaspec import (
     AVS_Init,
     AVS_Done,
     AVS_GetNrOfDevices,
@@ -637,6 +637,7 @@ class Spectrometer(QObject):
 
         # Stop live acquisition first.
         self.stop_live()
+        self.live_thread.stop()
 
         if self.handle is not None:
 

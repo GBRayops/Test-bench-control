@@ -5,20 +5,20 @@ import numpy as np
 from pathlib import Path
 
 
-from PySide6.QtWidgets import QApplication, QGridLayout, QGroupBox, QLabel, QMainWindow, QWidget, QTabWidget,QVBoxLayout, QHBoxLayout
+from PySide6.QtWidgets import QApplication, QGridLayout, QGroupBox, QLabel, QMainWindow, QWidget, QTabWidget,QVBoxLayout, QHBoxLayout, QScrollArea
 from PySide6.QtCore import Qt, Slot,  QTimer
 from PySide6.QtGui import QImage, QPixmap
 import pyqtgraph as pg
 
-from Camera_turret.camera_control.crosshair import CrosshairOverlay
-from Camera_turret.cameras_control_tab import CamerasControlTab
-from Camera_turret.turret_control_tab import TurretControlTab
+from internal.CAMs.crosshair import CrosshairOverlay
+from internal.CAMs.cameras_control_tab import CamerasControlTab
+from internal.turret_control_tab import TurretControlTab
 
-from Spectro_diode.avaspec import *
-from Spectro_diode.driver_control_tab import DriverControlTab
-from Spectro_diode.arduino_trigger_tab import ArduinoTriggerTab
-from Spectro_diode.spectro_tab import SpectroTab
-from Spectro_diode.chat_specto import Spectrometer
+from internal.Spectro.avaspec import *
+from internal.Diode_driver.driver_control_tab import DriverControlTab
+from internal.arduino_trigger_tab import ArduinoTriggerTab
+from internal.Spectro.spectro_tab import SpectroTab
+from internal.Spectro.spectro_ctrl import Spectrometer
 
 from queue import Queue
 
@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         # Add the tabs to the left panel
         self.left_panel.addWidget(self.tabs)
 
-        self.right_panel = QVBoxLayout() #Right panel will containt video feeds and spectrum (and logs?)
+        self.right_panel = QGridLayout() #Right panel will containt video feeds and spectrum (and logs?)
         self.live_feeds()
 
         main_layout.addLayout(self.left_panel, 0, 0)
@@ -74,8 +74,6 @@ class MainWindow(QMainWindow):
         main_layout.setColumnStretch(1, 3)  
 
         central_widget.setLayout(main_layout)
-
-        #self.spectrum_curve = self.plot_widget.plot([], [], pen=pg.mkPen('b', width=2))
 
         # Connect signals
         self.driver_control_tab.protection_activated.connect(self.on_protection_activated)
@@ -87,11 +85,12 @@ class MainWindow(QMainWindow):
         self.driver_control_tab.status_update.connect(self.log_tab.update_log)
         self.turret_control_tab.newLogMessage.connect(self.log_tab.update_log)
         self.camera_control_tab.newLogMessage.connect(self.log_tab.update_log)
+        self.spectro_tab.newLogMessage.connect(self.log_tab.update_log)
 
     def live_feeds(self):
 
-        self.feeds_layout = QVBoxLayout()
-        self.camera_layout = QHBoxLayout()
+        #self.feeds_layout = QVBoxLayout()
+        #self.camera_layout = QHBoxLayout()
         ids_box = QGroupBox("IDS Camera")
         usb_box = QGroupBox("USB Camera")
         # --------------------------------------------------------------
@@ -99,7 +98,7 @@ class MainWindow(QMainWindow):
         # --------------------------------------------------------------
         self.ids_layout = QVBoxLayout()
         self.idsFeedWidget = QWidget()
-        self.idsFeedWidget.setFixedSize(500, 500)
+        #self.idsFeedWidget.setFixedSize(500, 500)
 
         self.idsImageLabel = QLabel(self.idsFeedWidget)
         self.idsImageLabel.setGeometry(self.idsFeedWidget.rect())
@@ -113,7 +112,7 @@ class MainWindow(QMainWindow):
 
         self.usb_layout = QVBoxLayout()
         self.usbFeedWidget = QWidget()
-        self.usbFeedWidget.setFixedSize(500, 500)
+        #self.usbFeedWidget.setFixedSize(500, 500)
 
         self.usbImageLabel = QLabel(self.usbFeedWidget)
         self.usbImageLabel.setGeometry(self.usbFeedWidget.rect())
@@ -126,23 +125,22 @@ class MainWindow(QMainWindow):
         usb_box.setLayout(self.usb_layout)
 
         spectro_box = QGroupBox("Spectrometer Data")
-        spectro_layout = QVBoxLayout()
+        self.spectro_layout = QHBoxLayout()
         self.spectrum_graph = pg.PlotWidget(pen=pg.mkPen('b', width=2), clear=True)
         self.spectrum_plot = self.spectrum_graph.plot([], [], pen=pg.mkPen('b', width=2))
-        self.spectrum_graph.setFixedSize(1100, 400)
+        #self.spectrum_graph.setFixedSize(1100, 400)
         self.spectrum_graph.setLabel('left', 'Intensity', units='counts')
         self.spectrum_graph.setLabel('bottom', 'Wavelength', units='nm')
         self.spectrum_graph.setBackground('w')
-        spectro_layout.addWidget(self.spectrum_graph)
-        spectro_box.setLayout(spectro_layout)
+        self.spectro_layout.addWidget(self.spectrum_graph)
+        spectro_box.setLayout(self.spectro_layout)
 
-        # Add the live feeds widget to the right panel
-        self.camera_layout.addWidget(ids_box)
-        self.camera_layout.addWidget(usb_box)
-        self.feeds_layout.addLayout(self.camera_layout)
-        self.feeds_layout.addWidget(spectro_box)
-    
-        self.right_panel.addLayout(self.feeds_layout)
+        # Add the live feeds widgets to the right panel
+        self.right_panel.addWidget(ids_box, 0, 0, 1, 1, alignment=Qt.Alignment())
+        self.right_panel.addWidget(usb_box, 0, 1, 1, 1, alignment=Qt.Alignment())
+        self.right_panel.addWidget(spectro_box, 1, 0, 1, 2, alignment=Qt.Alignment())
+        self.right_panel.setRowStretch(0, 2)
+        self.right_panel.setRowStretch(1, 1)
 
 
 
@@ -265,6 +263,16 @@ class MainWindow(QMainWindow):
                     f"Turret shutdown error: {e}"
                 )
 
+        if hasattr(self.spectro_tab, "shutdown"):
+
+            try:
+                self.spectro_tab.shutdown()
+
+            except Exception as e:
+                print(
+                    f"Spectrometer shutdown error: {e}"
+                )
+
         event.accept()
 
 class LogTab(QWidget):
@@ -272,18 +280,23 @@ class LogTab(QWidget):
         super().__init__(parent)
 
         layout = QVBoxLayout(self)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
         self.log_label = QLabel("Log messages will appear here.")
         self.log_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.log_label.setWordWrap(True)
 
-        layout.addWidget(self.log_label)
+        scroll_area.setWidget(self.log_label)
+        layout.addWidget(scroll_area)
 
                 # === RAYOPS LOGO ===
         try:
             logo_label = QLabel()
             base_dir = Path("__main__").resolve().parent
-            logo_path = base_dir / "GUI_Images" / "logo.png"
+            logo_path = base_dir / "internal" / "GUI_Images" / "logo.png"
             logo_pixmap = QPixmap(logo_path)
             if not logo_pixmap.isNull():
                 # Scale logo to fit nicely (max width 300px)
@@ -294,7 +307,7 @@ class LogTab(QWidget):
                 layout.addWidget(logo_label)
 
             else:
-                print(f"⚠️ RAYOPS_logo.jpg not found at: {logo_path}")
+                print(f"⚠️ RAYOPS logo not found at: {logo_path}")
         except :
             print(f"⚠️ Could not load logo")
             pass  # Ignore if logo not found or fails to load     
@@ -308,6 +321,7 @@ class LogTab(QWidget):
         current_text = self.log_label.text()
         new_text = f"{current_text}\n{formatted_timestamp} : {message}"
         self.log_label.setText(new_text)
+        self.log_label.adjustSize()
 
 
 def main():
