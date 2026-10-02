@@ -324,7 +324,7 @@ class SpectroTab(QWidget):
         file_layout = QVBoxLayout()
 
         self.save_enable = QCheckBox(
-            "Auto-save scans to file"
+            "Auto-save scans to folder (CSV format)"
         )
         self.save_enable.setChecked(True)
 
