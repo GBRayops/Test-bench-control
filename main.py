@@ -21,7 +21,7 @@ from internal.Spectro.spectro_tab import SpectroTab
 from internal.Spectro.spectro_ctrl import Spectrometer
 
 from queue import Queue
-
+print('testing commit authentication')
 
 class MainWindow(QMainWindow):
     def __init__(self):
