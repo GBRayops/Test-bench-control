@@ -6,7 +6,7 @@ WITH THREADED MONITORING for non-blocking operation
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QComboBox, QGroupBox, QGridLayout,
                              QDoubleSpinBox, QRadioButton, QButtonGroup, QSpinBox)
-from PySide6.QtCore import QTimer, Signal, Qt, QThread
+from PySide6.QtCore import Signal, Qt, QThread
 from PySide6.QtGui import QFont, QPixmap
 import os
 import sys

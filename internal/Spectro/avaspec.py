@@ -1,8 +1,5 @@
 import sys, os
-#import inspect
 import ctypes
-#import struct
-#import globals
 from PySide6.QtCore import *
 
 AVS_SERIAL_LEN = 10

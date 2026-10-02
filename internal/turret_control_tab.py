@@ -1,17 +1,11 @@
-from __future__ import annotations
-
 import queue
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QPointF, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QBrush
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -19,7 +13,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QPlainTextEdit,
     QTabWidget,
     QVBoxLayout,
     QWidget,

@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
                                QComboBox, QGroupBox, QGridLayout, QDoubleSpinBox, 
                                QSpinBox, QStatusBar, QSlider, QLineEdit, QStyle, QMessageBox, QFileDialog)
 from PySide6.QtCore import Signal, Qt, QThread, QSettings, QObject, Slot
-from PySide6.QtGui import  QAction, QPixmap, QImage
+from PySide6.QtGui import  QAction, QPixmap
 from pathlib import Path
 
 import os

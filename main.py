@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 from PySide6.QtWidgets import QApplication, QGridLayout, QGroupBox, QLabel, QMainWindow, QWidget, QTabWidget,QVBoxLayout, QHBoxLayout, QScrollArea
-from PySide6.QtCore import Qt, Slot,  QTimer
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QImage, QPixmap
 import pyqtgraph as pg
 
@@ -21,7 +21,6 @@ from internal.Spectro.spectro_tab import SpectroTab
 from internal.Spectro.spectro_ctrl import Spectrometer
 
 from queue import Queue
-print('testing commit authentication')
 
 class MainWindow(QMainWindow):
     def __init__(self):
